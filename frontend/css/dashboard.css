@@ -2,6 +2,7 @@
 .stat{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:1rem 1.2rem;display:flex;flex-direction:column;gap:.2rem}.stat span{color:var(--muted);font-size:.85rem}.stat strong{font-size:1.7rem}.stat.good strong{color:var(--good)}.stat.bad strong{color:var(--bad)}.stat.warn strong{color:var(--warn)}
 .grid{display:grid;gap:1rem}.hero{grid-template-columns:260px 1fr}.two{grid-template-columns:1fr 1fr}
 .subjects{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem}.subj{display:flex;flex-direction:column;gap:.3rem;margin-bottom:.6rem}.subj>div:first-child{display:flex;justify-content:space-between}
+.student-attendance-list{display:flex;flex-direction:column;margin-top:1rem}.student-attendance-row{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding:.7rem 0;border-bottom:1px solid var(--line);font-size:1rem}.student-attendance-row input{width:18px;height:18px;margin:0;flex:0 0 auto}
 .inline{display:flex;align-items:center;gap:.6rem;min-width:140px}.inline .bar{flex:1}
 .profile{display:flex;gap:1.5rem;align-items:flex-start}.profile dl{display:grid;grid-template-columns:140px 1fr;gap:.5rem 1rem;margin:0}.profile dt{color:var(--muted)}.profile dd{margin:0;font-weight:600}
 .admin-home{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:1rem}

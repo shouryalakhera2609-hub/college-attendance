@@ -5,7 +5,7 @@ import { drawChrome, hideChrome } from './navigation.js';
 const A = ['admin'];
 const R = [['/login', 'login', null, 'Sign in'],
   ['/student/dashboard', 'student-dashboard', ['student'], 'Dashboard'], ['/student/attendance', 'student-attendance', ['student'], 'My Attendance'], ['/student/history', 'attendance-history', ['student'], 'Attendance History'],
-  ['/faculty/dashboard', 'faculty-dashboard', ['faculty'], 'Dashboard'], ['/faculty/mark', 'mark-attendance', ['faculty'], 'Mark Attendance'], ['/faculty/subjects', 'faculty-subjects', ['faculty'], 'My Subjects'],
+  ['/faculty/dashboard', 'faculty-dashboard', ['faculty'], 'Dashboard'], ['/faculty/mark', 'mark-attendance', ['faculty'], 'Mark Attendance'], ['/faculty/subjects', 'faculty-subjects', ['faculty'], 'My Subjects'], ['/faculty/subject', 'faculty-subject', ['faculty'], 'Subject'],
   ['/hod/dashboard', 'hod-dashboard', ['hod'], 'Department Dashboard'], ['/hod/students', 'hod-students', ['hod'], 'Student Details'], ['/admin/dashboard', 'admin-dashboard', A, 'System Overview'],
   ['/admin/students', 'manage-students', A, 'Manage Students'], ['/admin/faculty', 'manage-faculty', A, 'Manage Faculty & Staff'], ['/admin/subjects', 'manage-subjects', A, 'Manage Subjects'], ['/admin/departments', 'manage-departments', A, 'Manage Departments'],
   ['/admin/classes', 'manage-classes', A, 'Manage Classes'],
