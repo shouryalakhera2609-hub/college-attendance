@@ -1,4 +1,11 @@
 const m = require('mongoose');
+const savedUploadedSubjectSchema = new m.Schema({
+  catalogId: { type: String, required: true },
+  code: { type: String, required: true, trim: true },
+  name: { type: String, trim: true, default: '' },
+  department: { type: String, trim: true, default: '' },
+  semester: Number
+}, { _id: false });
 const s = new m.Schema({
   name: { type: String, required: true, trim: true, maxlength: 100 },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
@@ -9,6 +16,8 @@ const s = new m.Schema({
   branch: { type: String, trim: true, maxlength: 40 },
   department: { type: m.Schema.Types.ObjectId, ref: 'Department' },
   semester: { type: m.Schema.Types.ObjectId, ref: 'Semester' },
+  savedSubjects: [{ type: m.Schema.Types.ObjectId, ref: 'Subject' }],
+  savedUploadedSubjects: [savedUploadedSubjectSchema],
   phone: { type: String, trim: true, maxlength: 20 },
   rollNo: { type: String, trim: true }, active: { type: Boolean, default: true },
   failedLogins: { type: Number, default: 0 }, lockUntil: Date, tokenVersion: { type: Number, default: 0 }

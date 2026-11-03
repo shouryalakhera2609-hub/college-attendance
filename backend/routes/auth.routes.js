@@ -73,12 +73,16 @@ r.get('/register/options', ah(async (req, res) => {
 r.get('/register/classes', ah(async (req, res) => {
   const query = z.object({
     campus: z.enum(['BIRT', 'BIRTS', 'BIST']),
-    department: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid department')
+    department: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid department'),
+    semester: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid semester')
   }).safeParse(req.query);
-  if (!query.success) throw fail(400, 'Select a valid college and department.');
-  const classes = await Section.find({ campus: query.data.campus, department: query.data.department })
-    .select('name semester')
-    .populate('semester', 'name number')
+  if (!query.success) throw fail(400, 'Select a valid college, department, and semester.');
+  const classes = await Section.find({
+    campus: query.data.campus,
+    department: query.data.department,
+    semester: query.data.semester
+  })
+    .select('name')
     .sort('name')
     .lean();
   res.json({ success: true, data: classes });

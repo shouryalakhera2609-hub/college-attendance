@@ -3,6 +3,9 @@ const { authenticate } = require('../middleware/authenticate'), authorize = requ
 const svc = require('../services/attendance.service'), rep = require('../services/report.service');
 const { spreadsheetRows, writeSpreadsheetRows } = require('../utils/excel');
 const HodFileUpload = require('../models/HodFileUpload');
+const { backfillHodFileCampuses } = require('../utils/hodFileCampus');
+const { inferDepartmentCampus } = require('../utils/campusForDepartment');
+const Section = require('../models/Section');
 r.use(authenticate, authorize('hod'), (req, res, next) => req.user.department ? next() : res.status(403).json({ success: false, message: 'No department assigned' }));
 r.get('/dashboard', ah(async (req, res) => {
   const d = req.user.department;
@@ -18,6 +21,7 @@ r.get('/students', ah(async (req, res) => {
   res.json({ success: true, data: students });
 }));
 r.get('/files', ah(async (req, res) => {
+  await backfillHodFileCampuses(req.user.department);
   const files = await HodFileUpload.find({ department: req.user.department })
     .select('fileName contentType size createdAt updatedAt')
     .sort('-createdAt')
@@ -45,8 +49,13 @@ r.post('/files', require('express').raw({ type: 'application/octet-stream', limi
   };
   if (!contentTypes[extension]) throw fail(400, 'Only .csv, .xls, or .xlsx files are allowed.');
   if (!Buffer.isBuffer(req.body)) throw fail(400, 'The selected file could not be read.');
+  const campus = req.user.campus || inferDepartmentCampus(await Section.distinct('campus', {
+    department: req.user.department,
+    campus: { $in: ['BIRT', 'BIRTS', 'BIST'] }
+  }));
   const upload = await HodFileUpload.create({
     department: req.user.department,
+    ...(campus ? { campus } : {}),
     fileName,
     contentType: contentTypes[extension],
     size: req.body.length,

@@ -93,7 +93,7 @@ function editFileRow(file, rowIndex, cells, columnCount, refresh) {
     const updatedCells = rowCells.map((_, index) => String(formData.get(`cell-${index}`) || ''));
     const payload = new Blob([JSON.stringify({ cells: updatedCells })], { type: 'application/octet-stream' });
     try {
-      await apiFile(`/hod/files/${file._id}/rows/${rowIndex}`, payload);
+      await apiFile(`/hod/files/${file._id}/rows/${rowIndex}`, payload, { method: 'PUT' });
       m.close();
       toast('Row updated');
       await refresh();

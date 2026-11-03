@@ -1,12 +1,35 @@
 const r = require('express').Router(), { z } = require('zod'), AR = require('../models/AttendanceRecord'), CR = require('../models/CorrectionRequest'), U = require('../models/User'), En = require('../models/Enrollment');
 const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate');
 const { ah, fail, zid, oid, audit } = require('../utils/helpers'), svc = require('../services/attendance.service');
+const HodFileUpload = require('../models/HodFileUpload');
+const Semester = require('../models/Semester');
+const { uploadedSubjectsForStudent } = require('../utils/uploadedSubjects');
+const { backfillHodFileCampuses } = require('../utils/hodFileCampus');
 r.use(authenticate, authorize('student'));
 r.get('/attendance', ah(async (req, res) => res.json({ success: true, data: await svc.summary({ student: req.user._id }) })));
 r.get('/dashboard', ah(async (req, res) => {
   const s = await svc.summary({ student: req.user._id });
   s.recent = await AR.find({ student: req.user._id }).sort('-date').limit(6).populate('subject', 'code name').populate('session', 'period').select('date status subject session');
-  res.json({ success: true, data: s });
+  let uploadedSubjects = [];
+  if (req.user.campus && req.user.semester) {
+    await backfillHodFileCampuses();
+    const [semester, files] = await Promise.all([
+      Semester.findById(req.user.semester).select('number').lean(),
+      HodFileUpload.find({ campus: req.user.campus })
+        .select('fileName content')
+        .sort('-createdAt')
+        .limit(100)
+        .lean()
+    ]);
+    if (semester) {
+      uploadedSubjects = uploadedSubjectsForStudent({
+        files,
+        semester: semester.number,
+        branch: req.user.branch
+      });
+    }
+  }
+  res.json({ success: true, data: { ...s, uploadedSubjects } });
 }));
 const hq = z.object({ subject: zid.optional(), status: z.enum(['present', 'absent', 'excused']).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), page: z.coerce.number().int().min(1).max(1000).default(1) });
 r.get('/attendance/history', validate(hq, 'query'), ah(async (req, res) => {

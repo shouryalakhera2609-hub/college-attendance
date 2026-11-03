@@ -4,8 +4,8 @@ export async function api(path, { method = 'GET', body } = {}) {
   const r = await fetch(BASE + path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: body ? JSON.stringify(body) : undefined });
   return readResponse(r, path);
 }
-export async function apiFile(path, file) {
-  const r = await fetch(BASE + path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream', 'X-CSRF-Token': csrf() }, body: file });
+export async function apiFile(path, file, { method = 'POST' } = {}) {
+  const r = await fetch(BASE + path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream', 'X-CSRF-Token': csrf() }, body: file });
   return readResponse(r, path);
 }
 export async function apiDownload(path) {

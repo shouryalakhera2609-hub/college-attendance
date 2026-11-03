@@ -3,6 +3,8 @@ const { csvCell, pct } = require('../utils/helpers');
 const XLSX = require('@e965/xlsx'), { excelRows, spreadsheetRows, writeSpreadsheetRows } = require('../utils/excel');
 const { planClassSync } = require('../utils/classSync');
 const { planSubjectSync } = require('../utils/subjectSync');
+const { uploadedSubjectsForStudent, uploadedSubjectsFromFiles } = require('../utils/uploadedSubjects');
+const { inferDepartmentCampus } = require('../utils/campusForDepartment');
 test('csv escapes quotes and blocks formula injection', () => { assert.strictEqual(csvCell('=1+1'), "'=1+1"); assert.strictEqual(csvCell('a,"b"'), '"a,""b"""'); });
 test('percentage ignores zero totals', () => { assert.strictEqual(pct(0, 0), null); assert.strictEqual(pct(3, 1), 75); });
 test('Excel upload parser reads the first worksheet as rows', () => {
@@ -91,4 +93,76 @@ test('subject CSV sync marks removed duplicate subject rows for deletion', () =>
   assert.strictEqual(plan.retained, 1);
   assert.deepStrictEqual(plan.desiredSubjectIds, ['unlinked']);
   assert.deepStrictEqual(plan.obsoleteIds, ['linked']);
+});
+test('student subject lists match branch and semester regardless of HOD department', () => {
+  const files = [{
+    fileName: 'subject_list.csv',
+    content: Buffer.from([
+      'Branch,Semester,Subject Code',
+      'CSE-Data Science,5th,CD-501',
+      'CSE-Data Science,5th,CD-502',
+      'IT-Data Science,5th,CD-503',
+      'CSE-Data Science,3rd,CD-301',
+      'Mechanical,5th,ME-501'
+    ].join('\r\n'))
+  }];
+  assert.deepStrictEqual(uploadedSubjectsForStudent({
+    files,
+    semester: 5,
+    branch: 'Data Science'
+  }), [
+    { code: 'CD-501', name: '', semester: 5 },
+    { code: 'CD-502', name: '', semester: 5 },
+    { code: 'CD-503', name: '', semester: 5 }
+  ]);
+});
+test('student subject list parser finds headers after a leading title row', () => {
+  const files = [{
+    fileName: 'subject_list.csv',
+    content: Buffer.from([
+      'CSE-DS Subject List',
+      'Branch,Semester,Subject Code',
+      'CSE-Data Science,5th,CD-501',
+      'CSE-Data Science,5th,CD-502',
+      'CSE-Data Science,5th,CD-503',
+      'CSE-Data Science,5th,CD-504'
+    ].join('\r\n'))
+  }];
+  assert.deepStrictEqual(uploadedSubjectsForStudent({
+    files,
+    semester: 5,
+    branch: 'Data Science'
+  }).map(subject => subject.code), ['CD-501', 'CD-502', 'CD-503', 'CD-504']);
+});
+test('faculty catalog reads every branch and semester from campus subject uploads', () => {
+  const files = [{
+    fileName: 'subject_list.csv',
+    content: Buffer.from([
+      'Branch,Semester,Subject Code',
+      'CSE-Data Science,5th,CD-501',
+      'CSE-Data Science,5th,CD-502',
+      'CSE-Data Science,5th,CD-503',
+      'CSE-Data Science,5th,CD-504',
+      'Mechanical,3rd,ME-301'
+    ].join('\r\n'))
+  }];
+  assert.deepStrictEqual(uploadedSubjectsFromFiles({ files }).map(subject => subject.code), [
+    'CD-501', 'CD-502', 'CD-503', 'CD-504', 'ME-301'
+  ]);
+});
+test('student subject lists without a branch column match by semester', () => {
+  const files = [{
+    fileName: 'subjects.csv',
+    content: Buffer.from('Subject Code,Subject Name,Semester\nCD-501,Data Systems,5th\nCD-301,Data Systems,3rd')
+  }];
+  assert.deepStrictEqual(uploadedSubjectsForStudent({
+    files,
+    semester: 5,
+    branch: 'Data Science'
+  }), [{ code: 'CD-501', name: 'Data Systems', semester: 5 }]);
+});
+test('department campus is inferred only when its class list has one campus', () => {
+  assert.strictEqual(inferDepartmentCampus(['BIRT', 'BIRT']), 'BIRT');
+  assert.strictEqual(inferDepartmentCampus(['BIRT', 'BIRTS']), undefined);
+  assert.strictEqual(inferDepartmentCampus([]), undefined);
 });

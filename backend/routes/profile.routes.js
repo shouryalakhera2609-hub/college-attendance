@@ -2,6 +2,23 @@ const r = require('express').Router(), bcrypt = require('bcrypt'), { z } = requi
 const { authenticate, clearSession } = require('../middleware/authenticate'), validate = require('../middleware/validate'), { ah, fail, audit } = require('../utils/helpers');
 r.use(authenticate);
 r.get('/', ah(async (req, res) => { await req.user.populate('department', 'name code'); res.json({ success: true, data: req.user.toSafe() }); }));
+const studentProfile = z.object({
+  name: z.string().trim().min(1).max(100),
+  rollNo: z.string().trim().min(1).max(30),
+  phone: z.union([z.string().trim().max(20), z.literal('')]).optional()
+}).strict();
+r.patch('/', validate(studentProfile), ah(async (req, res) => {
+  if (req.user.role !== 'student') throw fail(403, 'Only students can edit their profile here.');
+  const before = { name: req.user.name, rollNo: req.user.rollNo, phone: req.user.phone };
+  req.user.name = req.body.name;
+  req.user.rollNo = req.body.rollNo;
+  req.user.phone = req.body.phone || undefined;
+  await req.user.save();
+  audit(req, 'student.profile.update', 'User', req.user._id, before, {
+    name: req.user.name, rollNo: req.user.rollNo, phone: req.user.phone
+  });
+  res.json({ success: true, data: req.user.toSafe() });
+}));
 const pw = z.object({ current: z.string().min(1).max(128), next: z.string().min(10).max(128).regex(/[a-z]/).regex(/[A-Z]/).regex(/\d/) }).strict();
 r.patch('/password', validate(pw), ah(async (req, res) => {
   const u = await User.findById(req.user._id).select('+passwordHash');

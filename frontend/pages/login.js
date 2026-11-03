@@ -96,9 +96,9 @@ export function render(root) {
             <label for="register-branch">Branch</label><select id="register-branch" name="branch" required><option value="">Select a branch</option><option value="Data Science">Data Science</option><option value="CSE">CSE</option><option value="AIML">AIML</option><option value="Cyber Security">Cyber Security</option><option value="ME">ME</option><option value="IT">IT</option><option value="MCA">MCA</option><option value="MBA">MBA</option><option value="BBA">BBA</option><option value="Other">Other</option></select>
             <label for="register-department">Department</label><select id="register-department" name="department" required><option value="">Loading departments…</option></select>
             <label for="register-campus">College</label><select id="register-campus" name="campus" required><option value="">Select a college</option><option value="BIRT">BIRT</option><option value="BIRTS">BIRTS</option><option value="BIST">BIST</option></select>
-            <label for="register-class">Choose class</label><select id="register-class" name="section" required disabled><option value="">Select department and college first</option></select>
+            <label for="register-semester">Semester</label><select id="register-semester" name="semester" required disabled><option value="">Loading semesters…</option></select>
+            <label for="register-class">Choose class</label><select id="register-class" name="section" required disabled><option value="">Select college, department, and semester first</option></select>
             <small id="register-class-help" class="register-status" hidden></small>
-            <label for="register-semester">Semester</label><select id="register-semester" name="semester" required disabled><option value="">Select a class first</option></select>
             <label for="register-password">Password (at least 10 characters)</label><input id="register-password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
           </div>
           <div id="register-otp-step" hidden>
@@ -186,7 +186,7 @@ export function render(root) {
       registrationOptions = await api('/auth/register/options');
       setSelectOptions(departmentSelect, 'Select a department', registrationOptions.departments.map(d => ({ value: d._id, label: d.name })));
       setSelectOptions(semesterSelect, 'Select a semester', registrationOptions.semesters.map(s => ({ value: s._id, label: s.name })));
-      semesterSelect.disabled = true;
+      semesterSelect.disabled = false;
       registrationOptionsReady = registrationOptions.departments.length > 0 && registrationOptions.semesters.length > 0;
       if (!registrationOptionsReady) {
         registerError.textContent = 'Student registration is unavailable until an administrator configures departments and semesters.';
@@ -205,9 +205,11 @@ export function render(root) {
     registerFields.querySelectorAll('input').forEach(input => { input.disabled = false; });
     registerFields.querySelectorAll('select').forEach(select => { select.disabled = false; });
     classSelect.disabled = true;
-    semesterSelect.disabled = true;
-    setSelectOptions(classSelect, 'Select department and college first', []);
-    setSelectOptions(semesterSelect, 'Select a class first', []);
+    semesterSelect.disabled = !registrationOptionsReady;
+    setSelectOptions(classSelect, 'Select college, department, and semester first', []);
+    if (registrationOptions) {
+      setSelectOptions(semesterSelect, 'Select a semester', registrationOptions.semesters.map(s => ({ value: s._id, label: s.name })));
+    }
     registrationClasses = [];
     classHelp.hidden = true;
     root.querySelector('#register-otp').required = false;
@@ -252,23 +254,22 @@ export function render(root) {
     const requestId = ++classOptionsRequest;
     const department = departmentSelect.value;
     const campus = campusSelect.value;
+    const semester = semesterSelect.value;
     registrationClasses = [];
     classSelect.disabled = true;
-    setSelectOptions(classSelect, 'Select a department and college first', []);
-    setSelectOptions(semesterSelect, 'Select a class first', []);
-    semesterSelect.disabled = true;
+    setSelectOptions(classSelect, 'Select college, department, and semester first', []);
     classHelp.hidden = true;
-    if (!department || !campus) return;
+    if (!department || !campus || !semester) return;
     classSelect.replaceChildren(new Option('Loading classes…', ''));
     try {
-      const classes = await api(`/auth/register/classes?campus=${encodeURIComponent(campus)}&department=${encodeURIComponent(department)}`);
+      const classes = await api(`/auth/register/classes?campus=${encodeURIComponent(campus)}&department=${encodeURIComponent(department)}&semester=${encodeURIComponent(semester)}`);
       if (requestId !== classOptionsRequest) return;
-      registrationClasses = classes.filter(item => item.semester?._id);
-      setSelectOptions(classSelect, registrationClasses.length ? 'Select a class' : 'No classes found for this college and department', []);
-      registrationClasses.forEach(item => classSelect.add(new Option(`${item.name} · ${item.semester.name}`, item._id)));
+      registrationClasses = classes;
+      setSelectOptions(classSelect, registrationClasses.length ? 'Select a class' : 'No classes found for this college, department, and semester', []);
+      registrationClasses.forEach(item => classSelect.add(new Option(item.name, item._id)));
       classSelect.disabled = !registrationClasses.length;
       if (!registrationClasses.length) {
-        classHelp.textContent = 'No classes have been uploaded for this college and department.';
+        classHelp.textContent = 'No classes have been uploaded for this college, department, and semester.';
         classHelp.hidden = false;
       }
     } catch (error) {
@@ -280,17 +281,7 @@ export function render(root) {
   };
   departmentSelect.onchange = loadRegistrationClasses;
   campusSelect.onchange = loadRegistrationClasses;
-  classSelect.onchange = () => {
-    const selectedClass = registrationClasses.find(item => item._id === classSelect.value);
-    if (!selectedClass) {
-      setSelectOptions(semesterSelect, 'Select a class first', []);
-      semesterSelect.disabled = true;
-      return;
-    }
-    setSelectOptions(semesterSelect, '', [{ value: selectedClass.semester._id, label: selectedClass.semester.name }]);
-    semesterSelect.value = selectedClass.semester._id;
-    semesterSelect.disabled = true;
-  };
+  semesterSelect.onchange = loadRegistrationClasses;
   root.querySelector('#register-resend').onclick = async event => {
     const button = event.currentTarget;
     button.disabled = true;
