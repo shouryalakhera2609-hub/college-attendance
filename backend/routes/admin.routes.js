@@ -1,0 +1,317 @@
+const r = require('express').Router(), bcrypt = require('bcrypt'), { z } = require('zod');
+const M = n => require('../models/' + n), U = M('User'), AR = M('AttendanceRecord'), AL = M('AuditLog'), Setting = M('Setting');
+const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit } = require('../utils/helpers'), svc = require('../services/attendance.service');
+const excelRows = require('../utils/excel').excelRows;
+const { planClassSync } = require('../utils/classSync');
+const ClassUpload = M('ClassUpload');
+r.use(authenticate, authorize('admin'));
+const classUploadKey = campus => `admin-classes-${campus}`;
+async function getCampusClassUpload(campus) {
+  if (!campus) throw fail(400, 'Sign in with a selected college to manage classes.');
+  let upload = await ClassUpload.findOne({ key: classUploadKey(campus) });
+  if (upload) return upload;
+
+  upload = await ClassUpload.findOne({ key: 'admin-classes' });
+  if (upload) {
+    await M('Section').updateMany({ _id: { $in: upload.sections } }, { $set: { campus } });
+    upload.key = classUploadKey(campus);
+    await upload.save();
+    return upload;
+  }
+
+  const legacySections = await M('Section').find({ campus: { $exists: false } }).select('_id').lean();
+  if (!legacySections.length) return null;
+  await M('Section').updateMany({ _id: { $in: legacySections.map(section => section._id) } }, { $set: { campus } });
+  return ClassUpload.create({
+    key: classUploadKey(campus),
+    fileName: 'Existing classes (previous upload)',
+    legacy: true,
+    sections: legacySections.map(section => section._id)
+  });
+}
+async function deleteSectionRecords(sectionIds, session) {
+  const sessions = await M('AttendanceSession').find({ section: { $in: sectionIds } }).select('_id').session(session).lean();
+  const records = await M('AttendanceRecord').find({ section: { $in: sectionIds } }).select('_id').session(session).lean();
+  const sessionIds = sessions.map(item => item._id);
+  const recordIds = records.map(item => item._id);
+  await M('CorrectionRequest').deleteMany({
+    $or: [{ session: { $in: sessionIds } }, { record: { $in: recordIds } }]
+  }, { session });
+  await M('AttendanceRecord').deleteMany({ section: { $in: sectionIds } }, { session });
+  await M('AttendanceSession').deleteMany({ section: { $in: sectionIds } }, { session });
+  await M('Enrollment').deleteMany({ section: { $in: sectionIds } }, { session });
+  await M('FacultyAssignment').deleteMany({ section: { $in: sectionIds } }, { session });
+  await M('Section').deleteMany({ _id: { $in: sectionIds } }, { session });
+  await ClassUpload.updateOne({ sections: { $in: sectionIds } }, { $pull: { sections: { $in: sectionIds } } }, { session });
+}
+r.get('/dashboard', ah(async (req, res) => {
+  const [students, faculty, departments, subjects, active, sum, recent] = await Promise.all([U.countDocuments({ role: 'student' }), U.countDocuments({ role: { $in: ['faculty', 'hod'] } }), M('Department').countDocuments(), M('Subject').countDocuments(), U.countDocuments({ active: true }), svc.summary({}), AL.find().sort('-createdAt').limit(8).populate('actor', 'name')]);
+  res.json({ success: true, data: { students, faculty, departments, subjects, active, threshold: sum.threshold, overall: sum.overall, subjectStats: sum.subjects, recent } });
+}));
+const wrap = p => p ? [].concat(p) : [];
+function crud(path, Model, sch, pop) {
+  r.get(path, ah(async (req, res) => res.json({ success: true, data: await Model.find().sort('-createdAt').limit(500).populate(wrap(pop)) })));
+  r.post(path, validate(sch), ah(async (req, res) => { const d = await Model.create(req.body); audit(req, 'create', Model.modelName, d._id, null, req.body); res.status(201).json({ success: true, data: d }); }));
+  r.patch(path + '/:id', validate(sch.partial()), ah(async (req, res) => {
+    const id = oid(req.params.id), b = await Model.findById(id); if (!b) throw fail(404, 'Not found');
+    if (Model.modelName === 'Section' && (req.body.department || req.body.semester)) {
+      const movesSection = (req.body.department && String(req.body.department) !== String(b.department))
+        || (req.body.semester && String(req.body.semester) !== String(b.semester));
+      if (movesSection) {
+        const related = await Promise.all([M('FacultyAssignment').exists({ section: id }), M('Enrollment').exists({ section: id }), M('AttendanceSession').exists({ section: id }), M('AttendanceRecord').exists({ section: id })]);
+        if (related.some(Boolean)) throw fail(409, 'Cannot change the department or semester of a class used by existing records.');
+      }
+    }
+    const d = await Model.findByIdAndUpdate(id, req.body, { new: true, runValidators: true }); audit(req, 'update', Model.modelName, id, b, d); res.json({ success: true, data: d });
+  }));
+  r.delete(path + '/:id', ah(async (req, res) => {
+    const id = oid(req.params.id), b = await Model.findById(id); if (!b) throw fail(404, 'Not found');
+    if (Model.modelName === 'Section') {
+      const session = await Model.startSession();
+      try {
+        await session.withTransaction(async () => {
+          if (!await Model.exists({ _id: id }).session(session)) throw fail(404, 'Not found');
+          await deleteSectionRecords([id], session);
+        });
+      } finally {
+        await session.endSession();
+      }
+    } else {
+      const related = Model.modelName === 'Subject'
+        ? await Promise.all([M('FacultyAssignment').exists({ subject: id }), M('AttendanceSession').exists({ subject: id }), M('AttendanceRecord').exists({ subject: id }), M('CorrectionRequest').exists({ subject: id })])
+        : [];
+      if (related.some(Boolean)) throw fail(409, `Cannot delete this ${Model.modelName.toLowerCase()} because it is used by existing records.`);
+      await Model.findByIdAndDelete(id);
+    }
+    audit(req, 'delete', Model.modelName, id, b, null); res.json({ success: true });
+  }));
+}
+const t = (n = 100) => z.string().trim().min(1).max(n);
+crud('/departments', M('Department'), z.object({ name: t(), code: t(12) }).strict());
+crud('/semesters', M('Semester'), z.object({ name: t(40), number: z.number().int().min(1).max(12) }).strict());
+crud('/sections', M('Section'), z.object({ name: t(20), department: zid, semester: zid }).strict(), ['department', 'semester']);
+crud('/subjects', M('Subject'), z.object({ code: t(20), name: t(120), department: zid, semester: zid }).strict(), ['department', 'semester']);
+crud('/assignments', M('FacultyAssignment'), z.object({ faculty: zid, subject: zid, section: zid, term: t(20) }).strict(), ['faculty', 'subject', 'section']);
+crud('/enrollments', M('Enrollment'), z.object({ student: zid, section: zid, term: t(20) }).strict(), ['student', 'section']);
+r.get('/classes/upload', ah(async (req, res) => {
+  let upload = await getCampusClassUpload(req.user.campus);
+  if (!upload) {
+    const sections = await M('Section').find({ campus: req.user.campus }).select('_id').lean();
+    if (sections.length) {
+      await ClassUpload.findOneAndUpdate(
+        { key: classUploadKey(req.user.campus) },
+        { $setOnInsert: { fileName: 'Existing classes (previous upload)', legacy: true, sections: sections.map(section => section._id) } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
+  }
+  upload = await ClassUpload.findOne({ key: classUploadKey(req.user.campus) })
+    .populate({ path: 'sections', populate: [{ path: 'department', select: 'name code' }, { path: 'semester', select: 'name number' }] })
+    .lean();
+  res.json({ success: true, data: upload });
+}));
+r.delete('/classes/upload', ah(async (req, res) => {
+  const upload = await getCampusClassUpload(req.user.campus);
+  if (!upload) throw fail(404, 'No uploaded class file found.');
+  const session = await ClassUpload.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const sectionIds = upload.sections;
+      const sessions = await M('AttendanceSession').find({ section: { $in: sectionIds } }).select('_id').session(session).lean();
+      const records = await M('AttendanceRecord').find({ section: { $in: sectionIds } }).select('_id').session(session).lean();
+      const sessionIds = sessions.map(item => item._id);
+      const recordIds = records.map(item => item._id);
+      await M('CorrectionRequest').deleteMany({
+        $or: [{ session: { $in: sessionIds } }, { record: { $in: recordIds } }]
+      }, { session });
+      await M('AttendanceRecord').deleteMany({ section: { $in: sectionIds } }, { session });
+      await M('AttendanceSession').deleteMany({ section: { $in: sectionIds } }, { session });
+      await M('Enrollment').deleteMany({ section: { $in: sectionIds } }, { session });
+      await M('FacultyAssignment').deleteMany({ section: { $in: sectionIds } }, { session });
+      await M('Section').deleteMany({ _id: { $in: sectionIds } }, { session });
+      await ClassUpload.deleteOne({ _id: upload._id }, { session });
+    });
+  } finally {
+    await session.endSession();
+  }
+  audit(req, 'delete', 'ClassUpload', upload._id, upload, null);
+  res.json({ success: true });
+}));
+r.post('/classes/import', validate(z.object({
+  fileName: t(255),
+  classes: z.array(z.record(z.string(), z.unknown())).min(1).max(500)
+}).strict()), ah(async (req, res) => {
+  const Department = M('Department'), Semester = M('Semester'), Section = M('Section');
+  await getCampusClassUpload(req.user.campus);
+  const departmentCache = new Map(), semesterCache = new Map();
+  const desired = [], errors = [];
+  let imported = 0, existing = 0, removed = 0;
+  const textFrom = (row, keys) => Object.entries(row).find(([name, value]) =>
+    keys.includes(name.toLowerCase().replace(/[\s-]+/g, '_')) && typeof value === 'string' && value.trim()
+  )?.[1]?.trim();
+
+  for (const [index, row] of req.body.classes.entries()) {
+    const rowNumber = Number.isInteger(row.rowNumber) && row.rowNumber > 0 ? row.rowNumber : index + 2;
+    try {
+      const allText = Object.values(row).find(value => typeof value === 'string' && value.trim())?.trim() || '';
+      const className = textFrom(row, ['class_name', 'section_name', 'section', 'class', 'name'])
+        || (Object.hasOwn(row, 'class_name') ? '' : allText);
+      if (!className) {
+        errors.push(`Row ${rowNumber}: could not find a class or section name.`);
+        continue;
+      }
+
+      const departmentName = textFrom(row, ['department_name', 'department', 'branch_name', 'branch', 'dept', 'course']) || 'General';
+      const departmentCode = (textFrom(row, ['department_code', 'department', 'branch_code', 'branch', 'dept', 'code'])
+        || departmentName).replace(/[^a-z0-9]/gi, '').slice(0, 12).toUpperCase() || 'GEN';
+      const semesterValue = textFrom(row, ['semester_number', 'semester', 'sem']) || '1';
+      const parsedSemester = Number.parseInt(String(semesterValue).match(/\d+/)?.[0] || '1', 10);
+      const semesterNumber = Math.min(12, Math.max(1, parsedSemester || 1));
+
+      let department = departmentCache.get(departmentCode);
+      if (!department) {
+        department = await Department.findOneAndUpdate(
+          { code: departmentCode },
+          { $set: { name: departmentName } },
+          { upsert: true, new: true, runValidators: true }
+        );
+        departmentCache.set(departmentCode, department);
+      }
+
+      let semester = semesterCache.get(semesterNumber);
+      if (!semester) {
+        semester = await Semester.findOneAndUpdate(
+          { number: semesterNumber },
+          { $set: { name: `Semester ${semesterNumber}` } },
+          { upsert: true, new: true, runValidators: true }
+        );
+        semesterCache.set(semesterNumber, semester);
+      }
+
+      desired.push({
+        name: className.slice(0, 20),
+        department: department._id,
+        semester: semester._id,
+        campus: req.user.campus,
+        rowNumber
+      });
+    } catch (error) {
+      errors.push(`Row ${rowNumber}: ${error.message}`);
+    }
+  }
+
+  if (!desired.length) {
+    audit(req, 'classes.import', 'Section', null, null, { imported, existing, removed, errors: errors.length });
+    return res.json({ success: true, data: { imported, existing, removed, skipped: errors.length, errors } });
+  }
+  if (errors.length) {
+    errors.push('No changes were saved. Fix the invalid rows and upload the file again.');
+    audit(req, 'classes.import', 'Section', null, null, { imported, existing, removed, errors: errors.length });
+    return res.json({ success: true, data: { imported, existing, removed, skipped: errors.length, errors } });
+  }
+
+  const previous = await Section.find({ campus: req.user.campus }).select('_id name department semester campus').lean();
+  const previousIds = previous.map(section => section._id);
+  const plan = planClassSync(previous, desired);
+  const toCreate = plan.toCreate;
+  const desiredSectionIds = [...plan.desiredSectionIds];
+  const obsoleteIds = plan.obsoleteIds;
+  existing = plan.retained;
+
+  if (toCreate.length) {
+    try {
+      const created = await Section.insertMany(toCreate, { ordered: true });
+      imported = created.length;
+      let createdIndex = 0;
+      for (let index = 0; index < desiredSectionIds.length; index++) {
+        if (desiredSectionIds[index] == null) desiredSectionIds[index] = created[createdIndex++]._id;
+      }
+    } catch (error) {
+      errors.push(`Could not save new classes: ${error.message}`);
+    }
+  }
+  const session = await Section.startSession();
+  try {
+    await session.withTransaction(async () => {
+      if (obsoleteIds.length) {
+        await deleteSectionRecords(obsoleteIds, session);
+        removed = obsoleteIds.length;
+      }
+      await ClassUpload.findOneAndUpdate(
+        { key: classUploadKey(req.user.campus) },
+        { $set: { fileName: req.body.fileName, legacy: false, sections: desiredSectionIds } },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true, session }
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
+  audit(req, 'classes.import', 'Section', null, null, { imported, existing, removed, errors: errors.length });
+  res.json({ success: true, data: { imported, existing, removed, skipped: errors.length, errors } });
+}));
+r.post('/classes/excel-preview', require('express').raw({ type: 'application/octet-stream', limit: '2mb' }), ah(async (req, res) => {
+  res.json({ success: true, data: { rows: excelRows(req.body) } });
+}));
+// ---- users (explicit field whitelist; admin controls role assignment) ----
+const user = z.object({ name: t(), email: z.string().trim().toLowerCase().email(), instId: t(30).optional(), role: z.enum(['student', 'faculty', 'hod', 'admin']), campus: z.enum(['BIRT', 'BIRTS', 'BIST']).optional(), department: zid.optional(), rollNo: t(30).optional(), active: z.boolean().optional(), password: z.string().min(10).max(128) }).strict();
+const lastAdmin = async u => { if (u.role === 'admin' && u.active && !await U.exists({ role: 'admin', active: true, _id: { $ne: u._id } })) throw fail(400, 'Cannot remove or deactivate the last active admin'); };
+r.get('/users', ah(async (req, res) => res.json({ success: true, data: await U.find().sort('-createdAt').limit(1000).populate('department', 'name code') })));
+r.post('/students/import', validate(z.object({ students: z.array(z.object({
+  name: t(), email: z.string().trim().toLowerCase().email(), instid: t(30).optional(),
+  instId: t(30).optional(), rollno: t(30).optional(), rollNo: t(30).optional(),
+  department: t(120).optional(), password: z.string().min(10).max(128)
+}).strict()).min(1).max(500) }).strict()), ah(async (req, res) => {
+  const Department = M('Department');
+  let imported = 0, skipped = 0;
+  const errors = [];
+  for (const [index, row] of req.body.students.entries()) {
+    if (await U.exists({ email: row.email })) { skipped++; errors.push(`Row ${index + 2}: email already exists`); continue; }
+    let department;
+    if (row.department) {
+      const escaped = row.department.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      department = await Department.findOne({
+        $or: [{ code: row.department }, { name: new RegExp(`^${escaped}$`, 'i') }]
+      });
+    }
+    try {
+      await U.create({
+        name: row.name,
+        email: row.email,
+        instId: row.instId || row.instid || undefined,
+        rollNo: row.rollNo || row.rollno || undefined,
+        department: department?._id,
+        role: 'student',
+        active: true,
+        passwordHash: await bcrypt.hash(row.password, 12)
+      });
+      imported++;
+    } catch (error) {
+      skipped++;
+      errors.push(`Row ${index + 2}: ${error.message}`);
+    }
+  }
+  audit(req, 'student.import', 'User', null, null, { imported, skipped });
+  res.json({ success: true, data: { imported, skipped, errors } });
+}));
+r.post('/users', validate(user), ah(async (req, res) => {
+  const { password, ...b } = req.body, d = await U.create({ ...b, passwordHash: await bcrypt.hash(password, 12) });
+  audit(req, 'user.create', 'User', d._id, null, { email: d.email, role: d.role }); res.status(201).json({ success: true, data: d });
+}));
+r.patch('/users/:id', validate(user.partial()), ah(async (req, res) => {
+  const u = await U.findById(oid(req.params.id)).select('+passwordHash'); if (!u) throw fail(404, 'Not found');
+  const { password, ...b } = req.body, before = { role: u.role, active: u.active };
+  if ((b.role && b.role !== 'admin') || b.active === false) await lastAdmin(u);
+  Object.assign(u, b); if (password) u.passwordHash = await bcrypt.hash(password, 12);
+  if (password || b.active === false || b.role) u.tokenVersion += 1; // force re-login
+  await u.save(); audit(req, 'user.update', 'User', u._id, before, { role: u.role, active: u.active }); res.json({ success: true, data: u });
+}));
+r.delete('/users/:id', ah(async (req, res) => { // soft delete = deactivate
+  const u = await U.findById(oid(req.params.id)); if (!u) throw fail(404, 'Not found');
+  await lastAdmin(u); u.active = false; u.tokenVersion += 1; await u.save(); audit(req, 'user.deactivate', 'User', u._id); res.json({ success: true });
+}));
+r.get('/settings/threshold', ah(async (req, res) => res.json({ success: true, data: { value: await svc.threshold() } })));
+r.put('/settings/threshold', validate(z.object({ value: z.number().int().min(1).max(100) }).strict()), ah(async (req, res) => {
+  const old = await svc.threshold(); await Setting.updateOne({ key: 'threshold' }, { value: req.body.value }, { upsert: true }); audit(req, 'settings.threshold', 'Setting', 'threshold', old, req.body.value); res.json({ success: true, data: req.body });
+}));
+r.get('/audit-logs', ah(async (req, res) => res.json({ success: true, data: await AL.find().sort('-createdAt').limit(200).populate('actor', 'name email') })));
+module.exports = r;

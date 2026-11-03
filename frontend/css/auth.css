@@ -1,0 +1,67 @@
+.login-page{min-height:calc(100vh - 3rem);display:grid;place-items:safe center;padding:2rem 1rem;background:#f4f6f9}
+.login-card{width:min(100%,520px);padding:2rem 2.5rem;background:#fff;border:1px solid #e8edf4;border-radius:22px;box-shadow:0 14px 40px rgba(22,45,78,.08)}
+.login-brand{display:flex;flex-direction:column;align-items:center;text-align:center}
+.login-logo-slot{width:116px;height:62px;object-fit:contain}
+.login-check{width:43px;height:43px;margin:1rem 0 .45rem;fill:none;stroke:#2563d9;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.login-brand h1{margin:0;color:#2059c8;font-size:2rem;font-weight:750;letter-spacing:-.035em}
+.login-brand p{margin:.25rem 0 0;color:#6b7788;font-size:.92rem}
+.role-picker{margin:1.65rem 0 1.2rem}
+.role-picker h2,.admin-mode h2{margin:0 0 .75rem;font-size:1rem;font-weight:700;color:#25334a}
+.role-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.55rem}
+.role-option{min-width:0;min-height:78px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.35rem;padding:.55rem .25rem;border:1px solid #dfe5ed;border-radius:12px;background:#fff;color:#7a8696;font:inherit;font-size:.75rem;font-weight:650;cursor:pointer;transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
+.role-option svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.role-option:hover{border-color:#8aaceb;color:#235ac6}
+.role-option.selected{border-color:#2861cf;background:#2861cf;color:#fff;box-shadow:0 5px 12px rgba(40,97,207,.2)}
+.role-option:focus-visible,.text-link:focus-visible,.admin-link:focus-visible,.password-toggle:focus-visible{outline:3px solid #91b6fa;outline-offset:2px}
+.login-form{display:flex;flex-direction:column;gap:.55rem}
+.login-field{height:56px;display:flex;flex-direction:row;align-items:center;gap:.75rem;padding:0 .9rem;border:1px solid #dfe5ed;border-radius:14px;background:#fff;transition:border-color .15s,box-shadow .15s}
+.login-field:focus-within{border-color:#3974df;box-shadow:0 0 0 3px #e4edff}
+.field-icon{width:22px;height:22px;flex:0 0 22px;color:#8290a3}
+.field-icon svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.login-field input{min-width:0;height:100%;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none!important;font-size:.95rem;font-weight:400}
+.login-field input:focus{outline:none}
+.login-field input::placeholder{color:#95a0af}
+.password-toggle{width:36px;height:36px;flex:0 0 36px;display:grid;place-items:center;border:0;border-radius:9px;background:transparent;color:#79879a;cursor:pointer}
+.password-toggle:hover{background:#f1f5f9}
+.login-links-row{display:flex;justify-content:space-between;align-items:center;margin:-.1rem 0 .3rem}
+.text-link,.admin-link{padding:0;border:0;background:none;color:#2861cf;font:inherit;font-weight:650;cursor:pointer}
+.text-link{font-size:.82rem}
+.text-link:hover,.admin-link:hover{text-decoration:underline}
+.login-submit{width:100%;min-height:54px;border:0;border-radius:13px;background:#2861cf;color:#fff;font:inherit;font-size:1rem;font-weight:750;box-shadow:0 6px 14px rgba(40,97,207,.22);cursor:pointer;transition:background .15s,transform .15s,box-shadow .15s}
+.login-submit:hover{background:#1f51b4;box-shadow:0 8px 17px rgba(40,97,207,.27);transform:translateY(-1px)}
+.login-submit:disabled{opacity:.65;cursor:wait;transform:none}
+.login-footer{margin-top:1.35rem;text-align:center}
+.login-footer p{margin:0;color:#69778a;font-size:.86rem}
+.admin-link{margin-top:.6rem;color:#7a8799;font-size:.78rem;font-weight:550}
+.admin-mode{margin:1.65rem 0 1.2rem;padding:1rem;border:1px solid #dfe8f7;border-radius:13px;background:#f6f9ff}
+.admin-mode h2{margin:0 0 .25rem;color:#2059c8}
+.admin-mode p{margin:0;color:#69778a;font-size:.86rem}
+.admin-mode label{display:block;margin:.85rem 0 .35rem;color:#25334a;font-size:.86rem;font-weight:700}
+.admin-mode select{width:100%;min-height:48px;padding:.65rem .75rem;border:1px solid #dfe5ed;border-radius:11px;background:#fff;color:#243247;font:inherit}
+.admin-mode select:focus{outline:3px solid #e4edff;border-color:#3974df}
+.login-error,.field-error{color:#b42318;font-size:.82rem}
+.login-error{padding:.65rem .75rem;border:1px solid #f5c2c0;border-radius:10px;background:#fff5f4}
+.field-error{margin:-.35rem 0 .1rem .25rem}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.auth-dialog{width:min(calc(100% - 2rem),430px);max-height:calc(100% - 2rem);padding:0;border:0;border-radius:18px;box-shadow:0 20px 60px rgba(15,35,65,.25);color:#243247}
+.auth-dialog.registration-dialog{width:calc(100% - 2rem);height:calc(100% - 2rem);max-width:900px;max-height:none}
+.auth-dialog.registration-dialog .dialog-form{height:100%;box-sizing:border-box;overflow-y:auto}
+@media (max-width:600px){
+.auth-dialog.registration-dialog{width:100%;height:100%;max-height:none;margin:0;border-radius:0}
+}
+.auth-dialog::backdrop{background:rgba(17,31,52,.48)}
+.dialog-form{padding:1.5rem}
+.dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.dialog-heading h2{margin:0;font-size:1.2rem}
+.dialog-form p{margin:.7rem 0 1rem;color:#6b7788;font-size:.9rem}
+.dialog-form label{display:block;margin-bottom:.35rem;font-size:.86rem}
+.dialog-form input,.dialog-form select{min-height:48px;border-radius:11px}
+.dialog-form{max-height:90vh;overflow-y:auto}
+.register-form{display:flex;flex-direction:column;gap:.45rem}
+.register-form input,.register-form select{width:100%;padding:.65rem .75rem;border:1px solid #dfe5ed;background:#fff;color:#243247;font:inherit}
+.register-form input:focus,.register-form select:focus{outline:3px solid #e4edff;border-color:#3974df}
+.register-form .text-link{align-self:flex-start}
+.register-status{color:#18794e!important}
+.dialog-form .login-submit{margin-top:1rem}
+.dialog-close{width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:9px;background:#f2f5f9;color:#566478;font-size:1.4rem;cursor:pointer}
+.admin-mode[hidden],.role-picker[hidden]{display:none}

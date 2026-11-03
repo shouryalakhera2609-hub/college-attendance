@@ -1,0 +1,23 @@
+@media(max-width:900px){
+ .sidebar{position:fixed;left:0;top:0;z-index:20;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.menu{display:inline-flex}
+ .hero,.two{grid-template-columns:1fr}
+ #page-content{padding:1rem}.topbar{padding:.6rem 1rem}.who div{display:none}.profile{flex-direction:column}.profile dl{grid-template-columns:110px 1fr}
+ .btn,input,select{min-height:44px}.row{flex-wrap:wrap}
+}
+@media(max-width:900px){
+ .admin-welcome{padding:1rem}
+ .admin-welcome img{width:64px;height:64px}
+ .admin-action-card{grid-template-columns:auto 1fr}
+ .admin-action-card>.btn{grid-column:1/-1;width:100%}
+ .student-toolbar{justify-content:stretch}
+ .student-toolbar .btn{flex:1}
+}
+@media(max-width:560px){
+ .login-page{min-height:calc(100vh - 2rem);padding:1rem .65rem;align-items:start}
+ .login-card{margin:1rem 0;padding:1.35rem 1.1rem;border-radius:18px}
+ .login-brand h1{font-size:1.75rem}
+ .login-logo-slot{width:104px;height:56px}
+ .role-options{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .role-option{min-height:72px;font-size:.78rem}
+ .login-field{height:54px}
+}

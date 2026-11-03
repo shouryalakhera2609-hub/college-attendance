@@ -1,0 +1,2 @@
+.tbl-wrap{overflow-x:auto;max-width:100%}table{width:100%;border-collapse:collapse}th,td{padding:.65rem .8rem;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}th{font-size:.8rem;color:var(--muted);font-weight:600;background:#f8fafc}tbody tr:hover{background:#f8fafc}td:last-child{white-space:normal}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding-top:.8rem;color:var(--muted)}

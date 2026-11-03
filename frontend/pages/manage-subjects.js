@@ -1,0 +1,2 @@
+import { crudPage } from '../js/components.js';
+export const render = root => crudPage(root, { title: 'Subjects', path: 'subjects', columns: [{ h: 'Code', v: r => r.code }, { h: 'Name', v: r => r.name }, { h: 'Department', v: r => r.department?.name }, { h: 'Semester', v: r => r.semester?.name }], fields: [{ k: 'code', label: 'Code', req: 1 }, { k: 'name', label: 'Name', req: 1 }, { k: 'department', label: 'Department', from: 'departments' }, { k: 'semester', label: 'Semester', from: 'semesters' }] });

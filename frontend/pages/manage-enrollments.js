@@ -1,0 +1,2 @@
+import { crudPage } from '../js/components.js';
+export const render = root => crudPage(root, { title: 'Enrollments', path: 'enrollments', columns: [{ h: 'Student', v: r => r.student?.name }, { h: 'Section', v: r => r.section?.name }, { h: 'Term', v: r => r.term }], fields: [{ k: 'student', label: 'Student', from: 'users', pick: u => u.role === 'student' && u.active }, { k: 'section', label: 'Section', from: 'sections' }, { k: 'term', label: 'Academic term (e.g. 2026-ODD)', req: 1 }] });
