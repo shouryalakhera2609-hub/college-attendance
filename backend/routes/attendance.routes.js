@@ -1,15 +1,15 @@
 const r = require('express').Router(), { z } = require('zod'), FA = require('../models/FacultyAssignment'), En = require('../models/Enrollment'), S = require('../models/AttendanceSession'), AR = require('../models/AttendanceRecord');
-const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit } = require('../utils/helpers');
+const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit, dateIsFuture } = require('../utils/helpers');
 r.use(authenticate);
-const create = z.object({ subject: zid, section: zid, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), period: z.number().int().min(1).max(12), term: z.string().trim().min(3).max(20) }).strict();
+const create = z.object({ subject: zid, section: zid, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), timezoneOffsetMinutes: z.number().int().min(-840).max(840), period: z.number().int().min(1).max(12), term: z.string().trim().min(3).max(20) }).strict();
 r.post('/sessions', authorize('faculty'), validate(create), ah(async (req, res) => {
   const b = req.body, a = await FA.findOne({ faculty: req.user._id, subject: b.subject, section: b.section, term: b.term }).populate('subject', 'department semester');
   if (!a) throw fail(403, 'You are not assigned to this subject and section');
   const date = new Date(b.date + 'T00:00:00Z');
-  if (isNaN(date) || date.getTime() > Date.now() + 864e5) throw fail(422, 'Invalid or future date');
+  if (isNaN(date) || dateIsFuture(b.date, b.timezoneOffsetMinutes)) throw fail(422, 'Attendance cannot be marked for a future date');
   const key = { subject: b.subject, section: b.section, date, period: b.period, term: b.term };
   let s = await S.findOne(key);
-  if (s && (String(s.faculty) !== String(req.user._id) || s.status !== 'open')) throw fail(409, 'Attendance for this class and period is already recorded');
+  if (s && (String(s.faculty) !== String(req.user._id) || s.status !== 'open')) throw fail(409, 'Attendance for this class and lecture is already recorded');
   if (!s) { s = await S.create({ ...key, faculty: req.user._id, department: a.subject.department, semester: a.subject.semester }); audit(req, 'session.create', 'AttendanceSession', s._id, null, key); }
   const en = await En.find({ section: b.section, term: b.term }).populate({ path: 'student', match: { active: true }, select: 'name rollNo instId' });
   res.status(201).json({ success: true, data: { session: s, students: en.map(e => e.student).filter(Boolean) } });

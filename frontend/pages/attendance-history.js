@@ -5,7 +5,7 @@ export async function render(root) {
   const subs = (await api('/student/attendance')).subjects; let f = { page: 1 };
   const draw = async () => {
     const d = await api('/student/attendance/history?' + qs(f)); const box = root.querySelector('#res');
-    box.innerHTML = String(html`<div class="card">${table([{ h: 'Date', v: r => fmtDate(r.date) }, { h: 'Subject', v: r => `${r.subject?.code} · ${r.subject?.name}` }, { h: 'Period', v: r => r.session?.period }, { h: 'Status', v: r => statusBadge(r.status) },
+    box.innerHTML = String(html`<div class="card">${table([{ h: 'Date', v: r => fmtDate(r.date) }, { h: 'Subject', v: r => `${r.subject?.code} · ${r.subject?.name}` }, { h: 'Lecture', v: r => r.session?.period ?? '-' }, { h: 'Status', v: r => statusBadge(r.status) },
       { h: 'Action', v: r => r.status === 'excused' ? '-' : html`<button class="btn sm" data-r="${r._id}" data-s="${r.status}">Request correction</button>` }], d.rows)}
       <div class="pager"><button class="btn sm" id="pv" ${d.page <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${d.page} of ${d.pages || 1} · ${d.total} records</span><button class="btn sm" id="nx" ${d.page >= d.pages ? 'disabled' : ''}>Next</button></div></div>`);
     box.querySelector('#pv').onclick = () => { f.page--; draw(); }; box.querySelector('#nx').onclick = () => { f.page++; draw(); };

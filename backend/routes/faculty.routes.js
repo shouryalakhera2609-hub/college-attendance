@@ -1,7 +1,8 @@
 const r = require('express').Router(), { z } = require('zod'), FA = require('../models/FacultyAssignment'), En = require('../models/Enrollment'), S = require('../models/AttendanceSession'), CR = require('../models/CorrectionRequest'), U = require('../models/User'), Subject = require('../models/Subject'), Section = require('../models/Section'), HodFileUpload = require('../models/HodFileUpload'), FacultySubjectHistory = require('../models/FacultySubjectHistory');
-const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, oid } = require('../utils/helpers');
+const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, oid, dateIsFuture } = require('../utils/helpers');
 const { uploadedSubjectsFromFiles } = require('../utils/uploadedSubjects');
 const { backfillHodFileCampuses } = require('../utils/hodFileCampus');
+const { averageAttendance } = require('../utils/facultyAttendance');
 r.use(authenticate, authorize('faculty'));
 const asg = req => FA.find({ faculty: req.user._id }).populate('subject', 'code name').populate('section', 'name');
 r.get('/assignments', ah(async (req, res) => res.json({ success: true, data: await asg(req) })));
@@ -96,12 +97,23 @@ r.get('/subject-students', validate(z.object({
 r.get('/subject-history', validate(z.object({
   subject: z.string().trim().min(1).max(100)
 }).strict(), 'query'), ah(async (req, res) => {
-  if (!await savedSubjectForFaculty(req.user._id, req.validated.subject)) throw fail(404, 'Subject not found in your saved subjects.');
-  const history = await FacultySubjectHistory.find({ faculty: req.user._id, catalogId: req.validated.subject })
-    .select('code date')
-    .sort({ date: -1 })
-    .lean();
-  res.json({ success: true, data: history });
+  const saved = await savedSubjectForFaculty(req.user._id, req.validated.subject);
+  if (!saved) throw fail(404, 'Subject not found in your saved subjects.');
+  const [roster, history] = await Promise.all([
+    studentsForSavedSubject(saved.faculty, saved.subject),
+    FacultySubjectHistory.find({ faculty: req.user._id, catalogId: req.validated.subject })
+      .select('code date lectureNo totalStudents students')
+      .sort({ date: -1 })
+      .lean()
+  ]);
+  res.json({ success: true, data: history.map(item => ({
+    _id: item._id,
+    code: item.code,
+    date: item.date,
+    lectureNo: item.lectureNo,
+    presentCount: item.students.length,
+    totalCount: item.totalStudents ?? roster.length
+  })) });
 }));
 r.get('/subject-history/:id', validate(z.object({
   subject: z.string().trim().min(1).max(100)
@@ -112,7 +124,7 @@ r.get('/subject-history/:id', validate(z.object({
     _id: oid(req.params.id),
     faculty: req.user._id,
     catalogId: req.validated.subject
-  }).select('code date students createdAt').lean();
+  }).select('code date lectureNo totalStudents students createdAt').lean();
   if (!history) throw fail(404, 'Subject history not found.');
   res.json({ success: true, data: history });
 }));
@@ -141,6 +153,7 @@ r.put('/subject-history/:id', validate(z.object({
     name: rosterById.get(id).name,
     rollNo: rosterById.get(id).rollNo
   }));
+  history.totalStudents = roster.length;
   await history.save();
   res.json({ success: true, data: history });
 }));
@@ -159,8 +172,13 @@ r.delete('/subject-history/:id', validate(z.object({
 r.post('/subject-history', validate(z.object({
   subject: z.string().trim().min(1).max(100),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  timezoneOffsetMinutes: z.number().int().min(-840).max(840),
+  lectureNo: z.number().int().min(1).max(12),
   students: z.array(z.string().regex(/^[a-f\d]{24}$/i)).max(5000)
 }).strict()), ah(async (req, res) => {
+  if (dateIsFuture(req.body.date, req.body.timezoneOffsetMinutes)) {
+    throw fail(422, 'Attendance cannot be marked for a future date');
+  }
   const saved = await savedSubjectForFaculty(req.user._id, req.body.subject);
   if (!saved) throw fail(404, 'Subject not found in your saved subjects.');
   const roster = await studentsForSavedSubject(saved.faculty, saved.subject);
@@ -173,6 +191,8 @@ r.post('/subject-history', validate(z.object({
       catalogId: req.body.subject,
       code: saved.subject.code,
       date: req.body.date,
+      lectureNo: req.body.lectureNo,
+      totalStudents: roster.length,
       students: selectedIds.map(id => ({
         id,
         name: rosterById.get(id).name,
@@ -181,7 +201,7 @@ r.post('/subject-history', validate(z.object({
     });
     res.status(201).json({ success: true, data: history });
   } catch (error) {
-    if (error.code === 11000) throw fail(409, 'History for this subject and date has already been saved.');
+    if (error.code === 11000) throw fail(409, 'History for this subject, date, and lecture has already been saved.');
     throw error;
   }
 }));
@@ -222,7 +242,29 @@ r.put('/my-subjects', validate(z.object({
   res.json({ success: true, data: savedSubjects });
 }));
 r.get('/dashboard', ah(async (req, res) => {
-  const a = await asg(req), recent = await S.find({ faculty: req.user._id }).sort('-date').limit(6).populate('subject', 'code name').populate('section', 'name');
+  const a = await asg(req), cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000);
+  const [recentSessions, recentSubjectHistory] = await Promise.all([
+    S.find({ faculty: req.user._id, status: 'submitted', submittedAt: { $gte: cutoff } })
+      .sort({ submittedAt: -1 })
+      .limit(50)
+      .populate('subject', 'code name')
+      .populate('section', 'name')
+      .lean(),
+    FacultySubjectHistory.find({ faculty: req.user._id, createdAt: { $gte: cutoff } })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .select('catalogId code date lectureNo totalStudents students createdAt')
+      .lean()
+  ]);
+  const sessionCounts = recentSessions.length ? await AR.aggregate([
+    { $match: { session: { $in: recentSessions.map(session => session._id) } } },
+    { $group: {
+      _id: '$session',
+      presentCount: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
+      totalCount: { $sum: 1 }
+    } }
+  ]) : [];
+  const sessionCountsById = new Map(sessionCounts.map(count => [String(count._id), count]));
   const user = await U.findById(req.user._id).populate({ path: 'savedSubjects', select: 'code name department semester', populate: [{ path: 'department', select: 'name' }, { path: 'semester', select: 'number' }] }).lean();
   const savedSubjects = [
     ...(user?.savedSubjects || []).map(subject => ({
@@ -234,14 +276,67 @@ r.get('/dashboard', ah(async (req, res) => {
     })),
     ...(user?.savedUploadedSubjects || [])
   ];
+  const legacyRosterCounts = new Map();
+  const legacyCatalogIds = [...new Set(recentSubjectHistory
+    .filter(history => history.totalStudents == null)
+    .map(history => history.catalogId))];
+  await Promise.all(legacyCatalogIds.map(async catalogId => {
+    const savedSubject = savedSubjects.find(subject => subject.catalogId === catalogId);
+    if (savedSubject) {
+      legacyRosterCounts.set(catalogId, (await studentsForSavedSubject(user, savedSubject)).length);
+    }
+  }));
+  const recent = [
+    ...recentSessions.map(session => {
+      const count = sessionCountsById.get(String(session._id));
+      return {
+        date: session.date,
+        subject: session.subject,
+        section: session.section,
+        lecture: session.period,
+        presentCount: count?.presentCount || 0,
+        totalCount: count?.totalCount || 0,
+        recordedAt: session.submittedAt
+      };
+    }),
+    ...recentSubjectHistory.map(history => ({
+      date: new Date(`${history.date}T00:00:00Z`),
+      subject: { code: history.code },
+      section: null,
+      lecture: history.lectureNo,
+      presentCount: history.students.length,
+      totalCount: history.totalStudents ?? legacyRosterCounts.get(history.catalogId) ?? history.students.length,
+      recordedAt: history.createdAt
+    }))
+  ].sort((left, right) => new Date(right.recordedAt) - new Date(left.recordedAt)).slice(0, 50);
   const historyCounts = await FacultySubjectHistory.aggregate([
     { $match: { faculty: req.user._id } },
-    { $group: { _id: '$catalogId', totalDays: { $sum: 1 } } }
+    { $group: {
+      _id: '$catalogId',
+      totalDays: { $sum: 1 },
+      presentTotal: { $sum: { $size: { $ifNull: ['$students', []] } } },
+      knownStudentTotal: { $sum: { $ifNull: ['$totalStudents', 0] } },
+      legacyDays: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalStudents', null] }, null] }, 1, 0] } }
+    } }
   ]);
-  const totalDaysBySubject = new Map(historyCounts.map(item => [item._id, item.totalDays]));
-  savedSubjects.forEach(subject => {
-    subject.totalDays = totalDaysBySubject.get(subject.catalogId) || 0;
-  });
+  const historyCountsBySubject = new Map(historyCounts.map(item => [item._id, item]));
+  await Promise.all(savedSubjects.map(async subject => {
+    const counts = historyCountsBySubject.get(subject.catalogId);
+    subject.totalDays = counts?.totalDays || 0;
+    if (!counts?.totalDays) {
+      subject.averagePresent = null;
+      return;
+    }
+    const legacyRosterSize = counts.legacyDays
+      ? (await studentsForSavedSubject(user, subject)).length
+      : 0;
+    const studentTotal = counts.knownStudentTotal + counts.legacyDays * legacyRosterSize;
+    subject.averagePresent = averageAttendance({
+      presentTotal: counts.presentTotal,
+      studentTotal,
+      totalDays: counts.totalDays
+    });
+  }));
   res.json({ success: true, data: { subjects: new Set(a.map(x => String(x.subject._id))).size, sections: new Set(a.map(x => String(x.section._id))).size, sessions: await S.countDocuments({ faculty: req.user._id, status: 'submitted' }), pending: await CR.countDocuments({ faculty: req.user._id, status: 'pending' }), savedSubjects, recent } });
 }));
 r.get('/sections/:sectionId/students', ah(async (req, res) => {

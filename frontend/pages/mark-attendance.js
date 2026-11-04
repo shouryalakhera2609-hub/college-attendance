@@ -1,15 +1,20 @@
 import { api } from '../js/api.js';
 import { html, fmtDate } from '../js/utils.js';
 import { toast, statusBadge } from '../js/components.js';
+const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 export async function render(root) {
   const as = await api('/faculty/assignments');
   if (!as.length) { root.innerHTML = String(html`<div class="empty card"><strong>No assigned classes</strong><p>An admin must assign you a subject and section first.</p></div>`); return; }
-  const today = new Date().toISOString().slice(0, 10);
-  root.innerHTML = String(html`<form class="card filters" id="ff"><label>Subject & section<select name="a">${as.map((x, i) => html`<option value="${i}">${x.subject.code} · ${x.subject.name} — ${x.section.name} (${x.term})</option>`)}</select></label><label>Date<input type="date" name="date" value="${today}" max="${today}" required></label><label>Period<select name="period">${[1, 2, 3, 4, 5, 6, 7, 8].map(p => html`<option>${p}</option>`)}</select></label><button class="btn primary">Load students</button></form><div id="list"></div>`);
+  const today = localDate(new Date());
+  root.innerHTML = String(html`<form class="card filters" id="ff"><label>Subject & section<select name="a">${as.map((x, i) => html`<option value="${i}">${x.subject.code} · ${x.subject.name} — ${x.section.name} (${x.term})</option>`)}</select></label><label>Date<input type="date" name="date" value="${today}" max="${today}" required></label><label>Lecture no.<select name="period" required><option value="" selected disabled>Select lecture</option>${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(p => html`<option value="${p}">${p}</option>`)}</select></label><button class="btn primary">Load students</button></form><div id="list"></div>`);
   root.querySelector('#ff').onsubmit = async e => {
     e.preventDefault(); const fd = new FormData(e.target), a = as[fd.get('a')];
+    if (fd.get('date') > localDate(new Date())) {
+      toast('Future dates are not allowed for attendance.', 'error');
+      return;
+    }
     try {
-      const { session, students } = await api('/attendance/sessions', { method: 'POST', body: { subject: a.subject._id, section: a.section._id, term: a.term, date: fd.get('date'), period: Number(fd.get('period')) } });
+      const { session, students } = await api('/attendance/sessions', { method: 'POST', body: { subject: a.subject._id, section: a.section._id, term: a.term, date: fd.get('date'), timezoneOffsetMinutes: new Date().getTimezoneOffset(), period: Number(fd.get('period')) } });
       sheet(session, students, a, fd.get('date'));
     } catch (er) { toast(er.message, 'error'); }
   };

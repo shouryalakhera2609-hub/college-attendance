@@ -22,6 +22,7 @@ const registrationSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.string().trim().toLowerCase().email().max(254),
   password: z.string().min(10).max(128),
+  phone: z.string().trim().min(7).max(20),
   instId: z.string().trim().min(1).max(30).optional(),
   rollNo: z.string().trim().min(1).max(30),
   branch: z.enum(['Data Science', 'CSE', 'AIML', 'Cyber Security', 'ME', 'IT', 'MCA', 'MBA', 'BBA', 'Other']),
@@ -106,7 +107,7 @@ async function deliverRegistrationOtp(challenge) {
 }
 
 r.post('/register/request-otp', registrationLimiter, validate(registrationSchema), ah(async (req, res) => {
-  const { name, email, password, instId, rollNo, branch, campus, department, semester, section } = req.body;
+  const { name, email, password, phone, instId, rollNo, branch, campus, department, semester, section } = req.body;
   if (await User.exists({ $or: [{ email }, ...(instId ? [{ instId }] : [])] })) throw fail(409, 'An account with this email or institution ID already exists.');
   const selectedClass = await Section.findOne({ _id: section, campus, department, semester }).select('_id').lean();
   if (!selectedClass) throw fail(400, 'Choose a class belonging to the selected college and department.');
@@ -119,6 +120,7 @@ r.post('/register/request-otp', registrationLimiter, validate(registrationSchema
   const challengeData = {
     name,
     email,
+    phone,
     instId,
     rollNo,
     department,

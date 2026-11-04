@@ -1,12 +1,27 @@
 const test = require('node:test'), assert = require('node:assert');
-const { csvCell, pct } = require('../utils/helpers');
+const { csvCell, pct, dateIsFuture } = require('../utils/helpers');
 const XLSX = require('@e965/xlsx'), { excelRows, spreadsheetRows, writeSpreadsheetRows } = require('../utils/excel');
 const { planClassSync } = require('../utils/classSync');
 const { planSubjectSync } = require('../utils/subjectSync');
 const { uploadedSubjectsForStudent, uploadedSubjectsFromFiles } = require('../utils/uploadedSubjects');
 const { inferDepartmentCampus } = require('../utils/campusForDepartment');
+const { averageAttendance } = require('../utils/facultyAttendance');
 test('csv escapes quotes and blocks formula injection', () => { assert.strictEqual(csvCell('=1+1'), "'=1+1"); assert.strictEqual(csvCell('a,"b"'), '"a,""b"""'); });
 test('percentage ignores zero totals', () => { assert.strictEqual(pct(0, 0), null); assert.strictEqual(pct(3, 1), 75); });
+test('average subject attendance is present student-slots divided by all student-slots', () => {
+  const result = averageAttendance({ presentTotal: 5 * 10, studentTotal: 10 * 10, totalDays: 10 });
+  assert.deepStrictEqual(result, { present: 5, total: 10, percentage: 50 });
+});
+test('future attendance date check uses the faculty local timezone offset', () => {
+  const now = new Date();
+  const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  const today = `${localNow.getUTCFullYear()}-${String(localNow.getUTCMonth() + 1).padStart(2, '0')}-${String(localNow.getUTCDate()).padStart(2, '0')}`;
+  const tomorrowDate = new Date(`${today}T00:00:00Z`);
+  tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+  const tomorrow = tomorrowDate.toISOString().slice(0, 10);
+  assert.strictEqual(dateIsFuture(today, now.getTimezoneOffset()), false);
+  assert.strictEqual(dateIsFuture(tomorrow, now.getTimezoneOffset()), true);
+});
 test('Excel upload parser reads the first worksheet as rows', () => {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['Class', 'Department'], ['A', 'Science']]), 'Classes');

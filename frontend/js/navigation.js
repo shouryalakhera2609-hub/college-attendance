@@ -4,8 +4,8 @@ import { logout } from './auth.js';
 const N = { dashboard: ['Dashboard', 'dashboard'], att: ['My Attendance', 'check', '/student/attendance'], hist: ['Attendance History', 'history', '/student/history'], corr: ['Correction Requests', 'file', '/corrections'], mark: ['Mark Attendance', 'check', '/faculty/mark'], subj: ['My Subjects', 'book', '/faculty/subjects'], rep: ['Reports', 'grid', '/reports'], prof: ['Profile', 'user', '/profile'], set: ['Settings', 'gear', '/settings'] };
 const adm = [['Students', 'users', '/admin/students'], ['Faculty & Staff', 'user', '/admin/faculty'], ['Subjects', 'book', '/admin/subjects'], ['Departments', 'grid', '/admin/departments'], ['Semesters', 'grid', '/admin/semesters'], ['Sections', 'grid', '/admin/sections'], ['Assignments', 'check', '/admin/assignments'], ['Enrollments', 'users', '/admin/enrollments']];
 export const MENU = {
-  student: u => [['Dashboard', 'dashboard', '/student/dashboard'], N.att, N.hist, N.corr, N.prof, N.set],
-  faculty: u => [['Dashboard', 'dashboard', '/faculty/dashboard'], N.subj, N.mark, N.rep, N.corr, N.prof, N.set],
+  student: u => [['Dashboard', 'dashboard', '/student/dashboard'], N.att, N.prof, N.set],
+  faculty: u => [['Dashboard', 'dashboard', '/faculty/dashboard'], N.prof, N.set],
   hod: u => [['Dashboard', 'dashboard', '/hod/dashboard'], ['Student Details', 'users', '/hod/students'], N.rep, N.corr, N.prof, N.set],
   admin: u => [['Dashboard', 'dashboard', '/admin/dashboard'], ['Student Details', 'users', '/admin/students'], ['Manage Classes', 'grid', '/admin/classes'], N.prof, N.set]
 };

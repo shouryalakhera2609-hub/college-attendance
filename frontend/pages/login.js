@@ -93,6 +93,7 @@ export function render(root) {
             <label for="register-name">Full name</label><input id="register-name" name="name" autocomplete="name" maxlength="100" required>
             <label for="register-email">Email address</label><input id="register-email" name="email" type="email" autocomplete="email" maxlength="254" required>
             <label for="register-roll-no">Roll number</label><input id="register-roll-no" name="rollNo" maxlength="30" required>
+            <label for="register-phone">Mobile number</label><input id="register-phone" name="phone" type="tel" autocomplete="tel" minlength="7" maxlength="20" required>
             <label for="register-branch">Branch</label><select id="register-branch" name="branch" required><option value="">Select a branch</option><option value="Data Science">Data Science</option><option value="CSE">CSE</option><option value="AIML">AIML</option><option value="Cyber Security">Cyber Security</option><option value="ME">ME</option><option value="IT">IT</option><option value="MCA">MCA</option><option value="MBA">MBA</option><option value="BBA">BBA</option><option value="Other">Other</option></select>
             <label for="register-department">Department</label><select id="register-department" name="department" required><option value="">Loading departments…</option></select>
             <label for="register-campus">College</label><select id="register-campus" name="campus" required><option value="">Select a college</option><option value="BIRT">BIRT</option><option value="BIRTS">BIRTS</option><option value="BIST">BIST</option></select>
@@ -418,6 +419,7 @@ export function render(root) {
           body: {
             name: root.querySelector('#register-name').value.trim(),
             email: registrationEmail.value.trim(),
+            phone: root.querySelector('#register-phone').value.trim(),
             password: root.querySelector('#register-password').value,
             rollNo: root.querySelector('#register-roll-no').value.trim() || undefined,
             branch: root.querySelector('#register-branch').value,
