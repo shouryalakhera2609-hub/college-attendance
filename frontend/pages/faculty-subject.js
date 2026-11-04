@@ -22,12 +22,13 @@ export async function render(root) {
       api(`/faculty/subject-history/${encodeURIComponent(historyId)}?subject=${encodeURIComponent(catalogId)}`),
       api(`/faculty/subject-students?subject=${encodeURIComponent(catalogId)}`)
     ]);
-    const canEdit = Date.now() - new Date(history.createdAt).getTime() <= 6 * 60 * 60 * 1000;
+    const canEdit = history.isOwner && Date.now() - new Date(history.createdAt).getTime() <= 6 * 60 * 60 * 1000;
     root.innerHTML = String(html`<div class="card"><p><a href="#/faculty/subject?subject=${encodeURIComponent(catalogId)}">← History</a></p>
       <h2>## ${history.code} · ${history.date} · Lecture ${history.lectureNo || '-'}</h2>
+      <p class="muted">Recorded by: ${history.facultyName}${history.facultyPhone ? ` · Mobile: ${history.facultyPhone}` : ''}</p>
       <p class="muted">Present ${history.students.length}/${history.totalStudents ?? roster.length}</p>
       <div id="history-students">${history.students.length ? html`<div class="student-attendance-list">${history.students.map(student => html`<div class="student-attendance-row"><span>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</span><input type="checkbox" checked disabled aria-label="${student.name} was selected"></div>`)}</div>` : html`<div class="empty"><strong>No students were selected</strong></div>`}</div>
-      ${canEdit ? html`<div class="history-actions"><button class="btn primary" id="edit-history" type="button">Edit</button></div>` : html`<p class="muted">Editing is available for 6 hours after saving.</p>`}
+      ${canEdit ? html`<div class="history-actions"><button class="btn primary" id="edit-history" type="button">Edit</button></div>` : html`<p class="muted">${history.isOwner ? 'Editing is available for 6 hours after saving.' : 'Only the faculty member who recorded this history can edit it.'}</p>`}
     </div>`);
     if (canEdit) {
       root.querySelector('#edit-history').onclick = async event => {
@@ -113,7 +114,7 @@ export async function render(root) {
     });
     const historyList = root.querySelector('#subject-history-list');
     historyList.innerHTML = String(filteredHistory.length
-      ? html`<div class="student-attendance-list">${filteredHistory.map(item => html`<div class="student-attendance-row"><span>${item.code} · ${item.date} · Lecture ${item.lectureNo || '-'}</span><span class="attendance-count">${item.presentCount}/${item.totalCount}</span><span class="history-actions"><a class="btn sm" href="#/faculty/subject?subject=${encodeURIComponent(catalogId)}&history=${item._id}">Open</a><button class="btn sm danger" type="button" data-delete-history="${item._id}">Delete</button></span></div>`)}</div>`
+      ? html`<div class="student-attendance-list">${filteredHistory.map(item => html`<div class="student-attendance-row"><span>${item.code} · ${item.date} · Lecture ${item.lectureNo || '-'} · Recorded by ${item.facultyName}</span><span class="attendance-count">${item.presentCount}/${item.totalCount}</span><span class="history-actions"><a class="btn sm" href="#/faculty/subject?subject=${encodeURIComponent(catalogId)}&history=${item._id}">Open</a>${item.isOwner ? html`<button class="btn sm danger" type="button" data-delete-history="${item._id}">Delete</button>` : ''}</span></div>`)}</div>`
       : html`<div class="empty"><strong>${search ? 'No history matches your search.' : 'No saved history yet.'}</strong></div>`);
     historyList.querySelectorAll('[data-delete-history]').forEach(button => {
       button.onclick = async () => {

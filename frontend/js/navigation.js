@@ -5,7 +5,7 @@ const N = { dashboard: ['Dashboard', 'dashboard'], att: ['My Attendance', 'check
 const adm = [['Students', 'users', '/admin/students'], ['Faculty & Staff', 'user', '/admin/faculty'], ['Subjects', 'book', '/admin/subjects'], ['Departments', 'grid', '/admin/departments'], ['Semesters', 'grid', '/admin/semesters'], ['Sections', 'grid', '/admin/sections'], ['Assignments', 'check', '/admin/assignments'], ['Enrollments', 'users', '/admin/enrollments']];
 export const MENU = {
   student: u => [['Dashboard', 'dashboard', '/student/dashboard'], N.att, N.prof, N.set],
-  faculty: u => [['Dashboard', 'dashboard', '/faculty/dashboard'], N.prof, N.set],
+  faculty: u => [['Dashboard', 'dashboard', '/faculty/dashboard'], N.prof, N.set, ['Reset Data', 'history', '/faculty/reset']],
   hod: u => [['Dashboard', 'dashboard', '/hod/dashboard'], ['Student Details', 'users', '/hod/students'], N.rep, N.corr, N.prof, N.set],
   admin: u => [['Dashboard', 'dashboard', '/admin/dashboard'], ['Student Details', 'users', '/admin/students'], ['Manage Classes', 'grid', '/admin/classes'], N.prof, N.set]
 };

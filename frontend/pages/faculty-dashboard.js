@@ -3,9 +3,53 @@ import { html, fmtDate } from '../js/utils.js';
 import { modal, table, toast } from '../js/components.js';
 export async function render(root, { user }) {
   const d = await api('/faculty/dashboard');
-  root.innerHTML = String(html`<div class="card"><div class="page-head"><h3>My Subjects</h3><button class="btn primary" id="add-subject" type="button">Add your subject</button></div>
-  ${d.savedSubjects?.length ? table([{ h: 'Subject code', v: subject => html`<a href="#/faculty/subject?subject=${encodeURIComponent(subject.catalogId)}">${subject.code}</a>` }, { h: 'Subject name', v: subject => subject.name || '-' }, { h: 'Department', v: subject => subject.department || '-' }, { h: 'Total days', v: subject => subject.totalDays || 0 }, { h: 'Average attendance', v: subject => subject.averagePresent ? `${subject.averagePresent.percentage}%` : '-' }], d.savedSubjects) : html`<div class="empty"><strong>No subjects added yet</strong><p>Choose subjects from your college subject list.</p></div>`}</div>
+  root.innerHTML = String(html`<div class="card"><div class="page-head"><h3>My Subjects</h3><div class="history-actions"><button class="btn" id="remove-subject" type="button">Remove subject</button><button class="btn primary" id="add-subject" type="button">Add your subject</button></div></div><p class="muted">Saved by: <strong>${d.savedBy?.name || 'Faculty'}</strong> · Mobile: <strong>${d.savedBy?.phone || 'Not provided'}</strong></p><div id="faculty-subjects"></div></div>
   <div class="card"><h3>Recent attendance</h3><input class="attendance-history-search" id="recent-attendance-search" type="search" aria-label="Search recent attendance by date or subject code" placeholder="Search by date or subject code"><div id="recent-attendance"></div></div>`);
+  let removeMode = false;
+  const drawSubjects = () => {
+    const subjects = d.savedSubjects || [];
+    root.querySelector('#faculty-subjects').innerHTML = String(subjects.length ? html`<div class="tbl-wrap"><table><thead><tr>${removeMode ? html`<th scope="col">Remove</th>` : ''}<th scope="col">Subject code</th><th scope="col">Subject name</th><th scope="col">Department</th><th scope="col">Total days</th><th scope="col">Average attendance</th></tr></thead><tbody>${subjects.map(subject => html`<tr>${removeMode ? html`<td data-label="Remove"><input type="checkbox" class="subject-to-remove" value="${subject.catalogId}" aria-label="Select ${subject.code} to remove"></td>` : ''}<td data-label="Subject code"><a href="#/faculty/subject?subject=${encodeURIComponent(subject.catalogId)}">${subject.code}</a></td><td data-label="Subject name">${subject.name || '-'}</td><td data-label="Department">${subject.department || '-'}</td><td data-label="Total days">${subject.totalDays || 0}</td><td data-label="Average attendance">${subject.averagePresent ? `${subject.averagePresent.percentage}%` : '-'}</td></tr>`)}</tbody></table></div>` : html`<div class="empty"><strong>No subjects added yet</strong><p>Choose subjects from your college subject list.</p></div>`);
+    const previousRemoveSelected = root.querySelector('#remove-selected-subjects');
+    if (previousRemoveSelected) previousRemoveSelected.remove();
+    const removeButton = root.querySelector('#remove-subject');
+    removeButton.textContent = removeMode ? 'Cancel' : 'Remove subject';
+    removeButton.classList.toggle('danger', removeMode);
+    removeButton.disabled = !removeMode && !subjects.length;
+    root.querySelector('#add-subject').hidden = removeMode;
+    root.querySelector('#remove-subject').onclick = () => {
+      removeMode = !removeMode;
+      drawSubjects();
+    };
+    if (removeMode) {
+      const removeSelected = document.createElement('button');
+      removeSelected.type = 'button';
+      removeSelected.className = 'btn danger';
+      removeSelected.textContent = 'Remove selected';
+      removeSelected.disabled = true;
+      removeSelected.id = 'remove-selected-subjects';
+      removeButton.before(removeSelected);
+      root.querySelectorAll('.subject-to-remove').forEach(checkbox => {
+        checkbox.onchange = () => {
+          removeSelected.disabled = !root.querySelector('.subject-to-remove:checked');
+        };
+      });
+      removeSelected.onclick = async () => {
+        const subjects = [...root.querySelectorAll('.subject-to-remove:checked')].map(checkbox => checkbox.value);
+        if (!subjects.length) return;
+        if (!confirm(`Remove ${subjects.length} selected subject${subjects.length === 1 ? '' : 's'} from your list? Attendance history will be kept.`)) return;
+        removeSelected.disabled = true;
+        try {
+          await api('/faculty/my-subjects', { method: 'DELETE', body: { subjects } });
+          toast('Selected subjects removed');
+          await render(root, { user });
+        } catch (error) {
+          toast(error.message, 'error');
+          removeSelected.disabled = false;
+        }
+      };
+    }
+  };
+  drawSubjects();
   const recentColumns = [
     { h: 'Date', v: record => fmtDate(record.date) },
     { h: 'Subject', v: record => record.subject?.code },
@@ -47,7 +91,12 @@ export async function render(root, { user }) {
       const selected = new Set((d.savedSubjects || []).map(subject => subject.catalogId));
       const m = modal({ title: 'Add your subject', body: html`<div class="form">
         <label>Search by subject name or code<input id="subject-search" type="search" placeholder="Search subjects"></label>
-        <div id="subject-options">${catalog.length ? catalog.map(subject => html`<button class="subject-option" type="button" data-subject="${subject.id}" aria-pressed="${selected.has(subject.id)}"><span class="subject-option-main"><span class="subject-check" aria-hidden="true">${selected.has(subject.id) ? '✓' : ''}</span><span>${subject.code}${subject.name ? ` · ${subject.name}` : ''}</span></span><small>${subject.department || ''}${subject.semester ? ` · Semester ${subject.semester}` : ''}</small></button>`) : html`<div class="empty"><strong>No subjects found</strong><p>Your college has no subjects in its subject list yet.</p></div>`}</div>
+        <div id="subject-options">${catalog.length ? catalog.map(subject => {
+          const isSelected = selected.has(subject.id);
+          const isAssigned = subject.assignedTo?.length > 0;
+          return html`<button class="subject-option ${isAssigned ? 'subject-option-conflict' : ''}" type="button" data-subject="${subject.id}" data-conflict="${isAssigned}" aria-pressed="${isSelected}" ${isAssigned && !isSelected ? 'disabled' : ''}><span class="subject-option-main"><span class="subject-check" aria-hidden="true">${isSelected ? '✓' : ''}</span><span>${subject.code}${subject.name ? ` · ${subject.name}` : ''}</span></span><small>${isAssigned ? `⚠ Already saved by ${subject.assignedTo.map(faculty => `${faculty.name} (Mobile: ${faculty.phone || 'not provided'})`).join(', ')}. They must remove it before you can add it.` : `${subject.department || ''}${subject.semester ? ` · Semester ${subject.semester}` : ''}`}</small></button>`;
+        }) : html`<div class="empty"><strong>No subjects found</strong><p>Your college has no subjects in its subject list yet.</p></div>`}</div>
+        <div id="subject-save-warning" class="alert bad" hidden></div>
         <button class="btn primary" id="save-subjects" type="button">Save subjects</button>
       </div>` });
       m.el.querySelectorAll('.subject-option').forEach(option => {
@@ -55,6 +104,7 @@ export async function render(root, { user }) {
           const isSelected = option.getAttribute('aria-pressed') === 'true';
           option.setAttribute('aria-pressed', String(!isSelected));
           option.querySelector('.subject-check').textContent = isSelected ? '' : '✓';
+          if (isSelected && option.dataset.conflict === 'true') option.disabled = true;
         };
       });
       m.el.querySelector('#subject-search').oninput = event => {
@@ -78,6 +128,11 @@ export async function render(root, { user }) {
           toast('Subjects saved');
           await render(root, { user });
         } catch (error) {
+          if (error.details?.length) {
+            const warning = m.el.querySelector('#subject-save-warning');
+            warning.innerHTML = String(html`<strong>These subjects are already saved by another faculty:</strong><ul>${error.details.map(subject => html`<li>${subject.code}: ${subject.faculty.map(faculty => `${faculty.name} (Mobile: ${faculty.phone || 'not provided'})`).join(', ')}</li>`)}</ul><p>They must remove the subject before you can add it.</p>`);
+            warning.hidden = false;
+          }
           toast(error.message, 'error');
           button.disabled = false;
         }

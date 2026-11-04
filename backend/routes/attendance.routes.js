@@ -1,5 +1,5 @@
 const r = require('express').Router(), { z } = require('zod'), FA = require('../models/FacultyAssignment'), En = require('../models/Enrollment'), S = require('../models/AttendanceSession'), AR = require('../models/AttendanceRecord');
-const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit, dateIsFuture } = require('../utils/helpers');
+const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit, dateIsFuture, sortStudentsByRollNo } = require('../utils/helpers');
 r.use(authenticate);
 const create = z.object({ subject: zid, section: zid, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), timezoneOffsetMinutes: z.number().int().min(-840).max(840), period: z.number().int().min(1).max(12), term: z.string().trim().min(3).max(20) }).strict();
 r.post('/sessions', authorize('faculty'), validate(create), ah(async (req, res) => {
@@ -12,7 +12,7 @@ r.post('/sessions', authorize('faculty'), validate(create), ah(async (req, res) 
   if (s && (String(s.faculty) !== String(req.user._id) || s.status !== 'open')) throw fail(409, 'Attendance for this class and lecture is already recorded');
   if (!s) { s = await S.create({ ...key, faculty: req.user._id, department: a.subject.department, semester: a.subject.semester }); audit(req, 'session.create', 'AttendanceSession', s._id, null, key); }
   const en = await En.find({ section: b.section, term: b.term }).populate({ path: 'student', match: { active: true }, select: 'name rollNo instId' });
-  res.status(201).json({ success: true, data: { session: s, students: en.map(e => e.student).filter(Boolean) } });
+  res.status(201).json({ success: true, data: { session: s, students: sortStudentsByRollNo(en.map(e => e.student).filter(Boolean)) } });
 }));
 const rec = z.object({ records: z.array(z.object({ student: zid, status: z.enum(['present', 'absent', 'excused']) }).strict()).min(1).max(500) }).strict();
 r.post('/sessions/:id/records', authorize('faculty'), validate(rec), ah(async (req, res) => {

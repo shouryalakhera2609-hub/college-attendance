@@ -21,6 +21,6 @@ async function readResponse(r, path) {
   if (r.ok && path.startsWith('/reports/attendance/export.csv')) return r.blob();
   const j = await r.json().catch(() => ({}));
   if (r.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('session-expired'));
-  if (!r.ok) { const e = new Error(j.errors?.length ? j.errors.map(x => x.field + ': ' + x.message).join('; ') : j.message || 'Request failed'); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error(j.errors?.length ? j.errors.map(x => x.field + ': ' + x.message).join('; ') : j.message || 'Request failed'); e.status = r.status; e.details = j.details; throw e; }
   return j.data;
 }

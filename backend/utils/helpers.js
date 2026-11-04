@@ -3,6 +3,14 @@ exports.ah = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 exports.fail = (status, message) => Object.assign(new Error(message), { status });
 exports.oid = v => { if (!mongoose.isValidObjectId(v)) throw exports.fail(400, 'Invalid id'); return new mongoose.Types.ObjectId(String(v)); };
 exports.zid = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
+exports.sortStudentsByRollNo = students => [...students].sort((a, b) => {
+  const rollA = String(a.rollNo || '').trim();
+  const rollB = String(b.rollNo || '').trim();
+  if (!rollA && rollB) return 1;
+  if (rollA && !rollB) return -1;
+  return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' })
+    || String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+});
 exports.audit = (req, action, entity, entityId, before, after) => AuditLog.create({ actor: req.user && req.user._id, action, entity, entityId, before, after, ip: req.ip }).catch(() => {});
 exports.dateIsFuture = (date, timezoneOffsetMinutes) => {
   const nowInLocalTime = new Date(Date.now() - timezoneOffsetMinutes * 60_000);
