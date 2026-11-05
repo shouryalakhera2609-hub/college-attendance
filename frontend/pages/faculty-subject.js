@@ -1,6 +1,6 @@
 import { api } from '../js/api.js';
 import { html, fmtDate } from '../js/utils.js';
-import { modal, toast } from '../js/components.js';
+import { download, modal, toast } from '../js/components.js';
 
 const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
@@ -102,20 +102,187 @@ export async function render(root) {
       totalCount: item.totalCount ?? details.totalStudents ?? roster.length
     };
   }));
+  let monthView = false;
+  let masterSheetView = false;
+  let selectedMonth = null;
+  const monthHistoryCache = new Map();
+  const csvEscape = value => {
+    const text = String(value ?? '');
+    const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+    return `"${safeText.replace(/"/g, '""')}"`;
+  };
   root.innerHTML = String(html`<div class="page-head"><div><h2>${subject.code}</h2><p class="muted">${subject.name || ''}</p></div><button class="btn primary" id="mark-attendance" type="button">Mark Attendance</button></div>
-  <div class="card"><h3>History</h3><input class="attendance-history-search" id="subject-history-search" type="search" aria-label="Search subject history by date or subject code" placeholder="Search by date or subject code"><div id="subject-history-list"></div></div>`);
+  <div class="card"><div class="attendance-history-heading subject-history-toolbar"><h3>History</h3><button class="btn sm" id="subject-history-month-view" type="button" aria-pressed="false">Month</button><button class="btn sm" id="subject-history-master-sheet" type="button" aria-pressed="false">Master Sheet</button></div><input class="attendance-history-search" id="subject-history-search" type="search" aria-label="Search subject history by date or subject code" placeholder="Search by date or subject code"><div id="subject-history-list"></div></div>`);
+  const drawMasterSheet = async historyList => {
+    historyList.innerHTML = String(html`<p class="muted">Loading master sheet…</p>`);
+    try {
+      const details = await Promise.all(historiesWithCounts.map(item => {
+        if (!monthHistoryCache.has(item._id)) {
+          monthHistoryCache.set(item._id, api(`/faculty/subject-history/${encodeURIComponent(item._id)}?subject=${encodeURIComponent(catalogId)}`));
+        }
+        return monthHistoryCache.get(item._id);
+      }));
+      if (!masterSheetView) return;
+      const attendedByStudent = new Map(roster.map(student => [String(student.id), 0]));
+      details.forEach(detail => detail.students.forEach(student => {
+        const studentId = String(student.id);
+        attendedByStudent.set(studentId, (attendedByStudent.get(studentId) || 0) + 1);
+      }));
+      const absentDatesByStudent = new Map(roster.map(student => [String(student.id), []]));
+      historiesWithCounts.forEach((item, index) => {
+        const presentIds = new Set(details[index].students.map(student => String(student.id)));
+        roster.forEach(student => {
+          const absentDates = absentDatesByStudent.get(String(student.id));
+          if (!presentIds.has(String(student.id)) && !absentDates.includes(item.date)) absentDates.push(item.date);
+        });
+      });
+      const totalClasses = historiesWithCounts.length;
+      historyList.innerHTML = String(html`<div class="tbl-wrap"><table><thead><tr><th scope="col">Student name</th><th scope="col">Total classes</th><th scope="col">Present</th><th scope="col">Absent</th><th scope="col">Attendance %</th><th scope="col">View absent</th></tr></thead>
+        <tbody>${roster.map(student => {
+          const studentId = String(student.id);
+          const present = attendedByStudent.get(String(student.id)) || 0;
+          const absent = totalClasses - present;
+          const percentage = totalClasses ? Math.round(present / totalClasses * 1000) / 10 : 0;
+          const absentDates = absentDatesByStudent.get(studentId);
+          return html`<tr><td>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</td><td>${totalClasses}</td><td>${present}</td><td>${absent}</td><td>${percentage}%</td><td><button class="btn sm danger" type="button" data-view-absent="${studentId}" aria-expanded="false">View absent</button></td></tr>
+            <tr data-absent-dates="${studentId}" hidden><td colspan="6"><strong>Absent dates:</strong> ${absentDates.length ? absentDates.map(date => date.split('-').reverse().join('/')).join(', ') : 'None'}</td></tr>`;
+        })}</tbody></table></div><button class="btn" id="download-master-sheet" type="button">Download master sheet</button>`);
+      historyList.querySelectorAll('[data-view-absent]').forEach(button => {
+        button.onclick = () => {
+          const expanded = button.getAttribute('aria-expanded') === 'true';
+          button.setAttribute('aria-expanded', String(!expanded));
+          historyList.querySelector(`[data-absent-dates="${button.dataset.viewAbsent}"]`).hidden = expanded;
+        };
+      });
+      historyList.querySelector('#download-master-sheet').onclick = () => {
+        const rows = [...historyList.querySelectorAll('table tr')]
+          .filter(row => !row.hasAttribute('data-absent-dates'))
+          .map(row => [...row.cells].slice(0, 5).map(cell => cell.textContent.trim()));
+        const csv = rows.map(row => row.map(csvEscape).join(',')).join('\r\n');
+        download(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }), `${subject.code}-master-sheet.csv`);
+      };
+    } catch (error) {
+      historiesWithCounts.forEach(item => monthHistoryCache.delete(item._id));
+      toast(error.message, 'error');
+    }
+  };
+  const drawMonthDetails = async (month, historyList) => {
+    const monthHistories = historiesWithCounts.filter(item => item.date?.startsWith(`${month}-`));
+    historyList.innerHTML = String(html`<p class="muted">Loading attendance…</p>`);
+    try {
+      const details = await Promise.all(monthHistories.map(item => {
+        if (!monthHistoryCache.has(item._id)) {
+          monthHistoryCache.set(item._id, api(`/faculty/subject-history/${encodeURIComponent(item._id)}?subject=${encodeURIComponent(catalogId)}`));
+        }
+        return monthHistoryCache.get(item._id);
+      }));
+      if (selectedMonth !== month) return;
+      const dates = [...new Set(monthHistories.map(item => item.date))].sort();
+      const presentByDate = new Map(dates.map(date => [date, new Set()]));
+      const attendanceByStudent = new Map(roster.map(student => [String(student.id), 0]));
+      details.forEach((detail, index) => {
+        const present = presentByDate.get(monthHistories[index].date);
+        detail.students.forEach(student => {
+          const studentId = String(student.id);
+          present.add(studentId);
+          attendanceByStudent.set(studentId, (attendanceByStudent.get(studentId) || 0) + 1);
+        });
+      });
+      const attendanceRows = roster.map(student => {
+        const attended = attendanceByStudent.get(String(student.id)) || 0;
+        const absent = monthHistories.length - attended;
+        const percentage = monthHistories.length ? Math.round(attended / monthHistories.length * 100) : 0;
+        return {
+          student,
+          attended,
+          absent,
+          percentage,
+          daily: dates.map(date => presentByDate.get(date).has(String(student.id)) ? 'P' : 'A')
+        };
+      });
+      historyList.innerHTML = String(html`<div class="attendance-history-heading"><h3>${month.slice(5, 7)}/${month.slice(0, 4)}</h3><button class="btn sm" id="back-to-months" type="button">Back to months</button></div>
+        <div class="tbl-wrap"><table><thead><tr><th scope="col">Student name</th>${dates.map(date => html`<th scope="col">${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}</th>`)}<th scope="col">Total classes</th><th scope="col">Attended</th><th scope="col">Absent</th><th scope="col">Attendance %</th></tr></thead>
+        <tbody>${attendanceRows.map(({ student, attended, absent, percentage, daily }) => html`<tr><td>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</td>${daily.map(status => html`<td aria-label="${student.name}: ${status === 'P' ? 'Present' : 'Absent'}">${status}</td>`)}<td>${monthHistories.length}</td><td>${attended}</td><td>${absent}</td><td>${percentage}%</td></tr>`)}</tbody></table></div>
+        <button class="btn" id="download-month-attendance" type="button">Download attendance</button>`);
+      historyList.querySelector('#download-month-attendance').onclick = () => {
+        const headers = [
+          'Student name',
+          ...dates.map(date => `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`),
+          'Total classes',
+          'Attended',
+          'Absent',
+          'Attendance %'
+        ];
+        const rows = attendanceRows.map(({ student, attended, absent, percentage, daily }) => [
+          `${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}`,
+          ...daily,
+          monthHistories.length,
+          attended,
+          absent,
+          `${percentage}%`
+        ]);
+        const csv = [headers, ...rows].map(row => row.map(csvEscape).join(',')).join('\r\n');
+        download(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }), `${subject.code}-${month}-attendance.csv`);
+      };
+      historyList.querySelector('#back-to-months').onclick = () => {
+        selectedMonth = null;
+        drawHistory();
+      };
+    } catch (error) {
+      monthHistories.forEach(item => monthHistoryCache.delete(item._id));
+      toast(error.message, 'error');
+      if (selectedMonth === month) {
+        selectedMonth = null;
+        drawHistory();
+      }
+    }
+  };
   const drawHistory = () => {
     const search = root.querySelector('#subject-history-search').value.trim().toLowerCase();
-    const filteredHistory = historiesWithCounts.filter(item => {
-      if (!search) return true;
-      return String(item.code || '').toLowerCase().includes(search)
-        || String(item.date || '').toLowerCase().includes(search)
-        || fmtDate(item.date).toLowerCase().includes(search);
-    });
     const historyList = root.querySelector('#subject-history-list');
-    historyList.innerHTML = String(filteredHistory.length
-      ? html`<div class="student-attendance-list">${filteredHistory.map(item => html`<div class="student-attendance-row"><span>${item.code} · ${item.date} · Lecture ${item.lectureNo || '-'} · Recorded by ${item.facultyName}</span><span class="attendance-count">${item.presentCount}/${item.totalCount}</span><span class="history-actions"><a class="btn sm" href="#/faculty/subject?subject=${encodeURIComponent(catalogId)}&history=${item._id}">Open</a>${item.isOwner ? html`<button class="btn sm danger" type="button" data-delete-history="${item._id}">Delete</button>` : ''}</span></div>`)}</div>`
-      : html`<div class="empty"><strong>${search ? 'No history matches your search.' : 'No saved history yet.'}</strong></div>`);
+    if (masterSheetView) {
+      drawMasterSheet(historyList);
+      return;
+    }
+    if (monthView) {
+      if (selectedMonth) {
+        drawMonthDetails(selectedMonth, historyList);
+        return;
+      }
+      const months = [...new Set(historiesWithCounts
+        .filter(item => /^\d{4}-\d{2}-\d{2}$/.test(item.date))
+        .map(item => item.date.slice(0, 7)))]
+        .sort()
+        .filter(month => {
+          const label = `${month.slice(5, 7)}/${month.slice(0, 4)}`;
+          return !search || label.includes(search) || String(subject.code).toLowerCase().includes(search);
+        });
+      historyList.innerHTML = String(months.length
+        ? html`<div class="student-attendance-list">${months.map(month => {
+          const monthHistories = historiesWithCounts.filter(item => item.date?.startsWith(`${month}-`));
+          const presentCount = monthHistories.reduce((total, item) => total + (item.presentCount || 0), 0);
+          const totalCount = monthHistories.reduce((total, item) => total + (item.totalCount || 0), 0);
+          const percentage = totalCount ? Math.round(presentCount / totalCount * 100) : 0;
+          return html`<div class="student-attendance-row"><button class="btn sm" type="button" data-month="${month}">${month.slice(5, 7)}/${month.slice(0, 4)}</button><span class="attendance-count">${percentage}% average attendance</span></div>`;
+        })}</div>`
+        : html`<div class="empty"><strong>${search ? 'No history matches your search.' : 'No saved history yet.'}</strong></div>`);
+      historyList.querySelectorAll('[data-month]').forEach(button => {
+        button.onclick = () => {
+          selectedMonth = button.dataset.month;
+          drawHistory();
+        };
+      });
+    } else {
+      const filteredHistory = historiesWithCounts.filter(item => {
+        if (!search) return true;
+        return String(item.code || '').toLowerCase().includes(search)
+          || String(item.date || '').toLowerCase().includes(search)
+          || fmtDate(item.date).toLowerCase().includes(search);
+      });
+      historyList.innerHTML = String(filteredHistory.length
+        ? html`<div class="student-attendance-list">${filteredHistory.map(item => html`<div class="student-attendance-row"><span>${item.code} · ${item.date} · Lecture ${item.lectureNo || '-'} · Recorded by ${item.facultyName}</span><span class="attendance-count">${item.presentCount}/${item.totalCount}</span><span class="history-actions"><a class="btn sm" href="#/faculty/subject?subject=${encodeURIComponent(catalogId)}&history=${item._id}">Open</a>${item.isOwner ? html`<button class="btn sm danger" type="button" data-delete-history="${item._id}">Delete</button>` : ''}</span></div>`)}</div>`
+        : html`<div class="empty"><strong>${search ? 'No history matches your search.' : 'No saved history yet.'}</strong></div>`);
+    }
     historyList.querySelectorAll('[data-delete-history]').forEach(button => {
       button.onclick = async () => {
         if (!confirm('Delete this history permanently? This cannot be undone.')) return;
@@ -130,6 +297,28 @@ export async function render(root) {
         }
       };
     });
+  };
+  const monthViewButton = root.querySelector('#subject-history-month-view');
+  monthViewButton.onclick = () => {
+    monthView = !monthView;
+    masterSheetView = false;
+    root.querySelector('#subject-history-master-sheet').setAttribute('aria-pressed', 'false');
+    selectedMonth = null;
+    monthViewButton.textContent = monthView ? 'Dates' : 'Month';
+    monthViewButton.setAttribute('aria-pressed', String(monthView));
+    drawHistory();
+  };
+  const masterSheetButton = root.querySelector('#subject-history-master-sheet');
+  masterSheetButton.onclick = () => {
+    masterSheetView = !masterSheetView;
+    if (masterSheetView) {
+      monthView = false;
+      selectedMonth = null;
+      monthViewButton.textContent = 'Month';
+      monthViewButton.setAttribute('aria-pressed', 'false');
+    }
+    masterSheetButton.setAttribute('aria-pressed', String(masterSheetView));
+    drawHistory();
   };
   root.querySelector('#subject-history-search').oninput = drawHistory;
   drawHistory();
