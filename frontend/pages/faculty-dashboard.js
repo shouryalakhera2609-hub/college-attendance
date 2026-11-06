@@ -8,7 +8,8 @@ export async function render(root, { user }) {
   let removeMode = false;
   const drawSubjects = () => {
     const subjects = d.savedSubjects || [];
-    root.querySelector('#faculty-subjects').innerHTML = String(subjects.length ? html`<div class="tbl-wrap"><table><thead><tr>${removeMode ? html`<th scope="col">Remove</th>` : ''}<th scope="col">Subject code</th><th scope="col">Subject name</th><th scope="col">Department</th><th scope="col">Total days</th><th scope="col">Average attendance</th></tr></thead><tbody>${subjects.map(subject => html`<tr>${removeMode ? html`<td data-label="Remove"><input type="checkbox" class="subject-to-remove" value="${subject.catalogId}" aria-label="Select ${subject.code} to remove"></td>` : ''}<td data-label="Subject code"><a href="#/faculty/subject?subject=${encodeURIComponent(subject.catalogId)}">${subject.code}</a></td><td data-label="Subject name">${subject.name || '-'}</td><td data-label="Department">${subject.department || '-'}</td><td data-label="Total days">${subject.totalDays || 0}</td><td data-label="Average attendance">${subject.averagePresent ? `${subject.averagePresent.percentage}%` : '-'}</td></tr>`)}</tbody></table></div>` : html`<div class="empty"><strong>No subjects added yet</strong><p>Choose subjects from your college subject list.</p></div>`);
+    const showCollege = ['BIRT', 'BIRTS'].includes(user.campus);
+    root.querySelector('#faculty-subjects').innerHTML = String(subjects.length ? html`<div class="tbl-wrap"><table><thead><tr>${removeMode ? html`<th scope="col">Remove</th>` : ''}<th scope="col">Subject code</th><th scope="col">Subject name</th>${showCollege ? html`<th scope="col">College</th>` : ''}<th scope="col">Department</th><th scope="col">Total days</th><th scope="col">Average attendance</th>${showCollege ? html`<th scope="col">Birt student</th><th scope="col">Birts student</th>` : ''}</tr></thead><tbody>${subjects.map(subject => html`<tr>${removeMode ? html`<td data-label="Remove"><input type="checkbox" class="subject-to-remove" value="${subject.catalogId}" aria-label="Select ${subject.code} to remove"></td>` : ''}<td data-label="Subject code"><a href="#/faculty/subject?subject=${encodeURIComponent(subject.catalogId)}">${subject.code}</a></td><td data-label="Subject name">${subject.name || '-'}</td>${showCollege ? html`<td data-label="College">${subject.campus || user.campus || '-'}</td>` : ''}<td data-label="Department">${subject.department || '-'}</td><td data-label="Total days">${subject.totalDays || 0}</td><td data-label="Average attendance">${subject.averagePresent ? `${subject.averagePresent.percentage}%` : '-'}</td>${showCollege ? html`<td data-label="Birt student">${subject.averageByAttendanceSection?.Birt ? `${subject.averageByAttendanceSection.Birt.percentage}%` : '-'}</td><td data-label="Birts student">${subject.averageByAttendanceSection?.Birts ? `${subject.averageByAttendanceSection.Birts.percentage}%` : '-'}</td>` : ''}</tr>`)}</tbody></table></div>` : html`<div class="empty"><strong>No subjects added yet</strong><p>Choose subjects from your college subject list.</p></div>`);
     const previousRemoveSelected = root.querySelector('#remove-selected-subjects');
     if (previousRemoveSelected) previousRemoveSelected.remove();
     const removeButton = root.querySelector('#remove-subject');
@@ -87,33 +88,82 @@ export async function render(root, { user }) {
   drawRecentAttendance();
   root.querySelector('#add-subject').onclick = async () => {
     try {
-      const catalog = await api('/faculty/subject-catalog');
-      const selected = new Set((d.savedSubjects || []).map(subject => subject.catalogId));
+      const canChooseCampus = ['BIRT', 'BIRTS'].includes(user.campus);
+      let selectedCampus = canChooseCampus ? '' : user.campus;
+      let catalog = [];
+      let catalogRequest = 0;
       const m = modal({ title: 'Add your subject', body: html`<div class="form">
+        ${canChooseCampus ? html`<label>Select college<select id="subject-campus" required><option value="">Select a college</option><option value="BIRT">Birt</option><option value="BIRTS">Birts</option></select></label>` : ''}
         <label>Search by subject name or code<input id="subject-search" type="search" placeholder="Search subjects"></label>
-        <div id="subject-options">${catalog.length ? catalog.map(subject => {
-          const isSelected = selected.has(subject.id);
-          const isAssigned = subject.assignedTo?.length > 0;
-          return html`<button class="subject-option ${isAssigned ? 'subject-option-conflict' : ''}" type="button" data-subject="${subject.id}" data-conflict="${isAssigned}" aria-pressed="${isSelected}" ${isAssigned && !isSelected ? 'disabled' : ''}><span class="subject-option-main"><span class="subject-check" aria-hidden="true">${isSelected ? '✓' : ''}</span><span>${subject.code}${subject.name ? ` · ${subject.name}` : ''}</span></span><small>${isAssigned ? `⚠ Already saved by ${subject.assignedTo.map(faculty => `${faculty.name} (Mobile: ${faculty.phone || 'not provided'})`).join(', ')}. They must remove it before you can add it.` : `${subject.department || ''}${subject.semester ? ` · Semester ${subject.semester}` : ''}`}</small></button>`;
-        }) : html`<div class="empty"><strong>No subjects found</strong><p>Your college has no subjects in its subject list yet.</p></div>`}</div>
+        <div id="subject-options" class="muted">${canChooseCampus ? 'Select a college to view its subjects.' : 'Loading subjects…'}</div>
         <div id="subject-save-warning" class="alert bad" hidden></div>
         <button class="btn primary" id="save-subjects" type="button">Save subjects</button>
       </div>` });
-      m.el.querySelectorAll('.subject-option').forEach(option => {
-        option.onclick = () => {
-          const isSelected = option.getAttribute('aria-pressed') === 'true';
-          option.setAttribute('aria-pressed', String(!isSelected));
-          option.querySelector('.subject-check').textContent = isSelected ? '' : '✓';
-          if (isSelected && option.dataset.conflict === 'true') option.disabled = true;
+      const optionsContainer = m.el.querySelector('#subject-options');
+      const saveButton = m.el.querySelector('#save-subjects');
+      const drawCatalog = () => {
+        const selected = new Set((d.savedSubjects || [])
+          .filter(subject => subject.campus === selectedCampus)
+          .map(subject => subject.catalogId));
+        optionsContainer.classList.remove('muted');
+        optionsContainer.innerHTML = String(catalog.length ? html`${catalog.map(subject => {
+          const isSelected = selected.has(subject.id);
+          const isAssigned = subject.assignedTo?.length > 0;
+          return html`<button class="subject-option ${isAssigned ? 'subject-option-conflict' : ''}" type="button" data-subject="${subject.id}" data-conflict="${isAssigned}" aria-pressed="${isSelected}" ${isAssigned && !isSelected ? 'disabled' : ''}><span class="subject-option-main"><span class="subject-check" aria-hidden="true">${isSelected ? '✓' : ''}</span><span>${subject.code}${subject.name ? ` · ${subject.name}` : ''}</span></span><small>${isAssigned ? `⚠ Already saved by ${subject.assignedTo.map(faculty => `${faculty.name} (Mobile: ${faculty.phone || 'not provided'})`).join(', ')}. They must remove it before you can add it.` : `${subject.department || ''}${subject.semester ? ` · Semester ${subject.semester}` : ''}`}</small></button>`;
+        })}` : html`<div class="empty"><strong>No subjects found</strong><p>This college has no subjects in its subject list yet.</p></div>`);
+        optionsContainer.querySelectorAll('.subject-option').forEach(option => {
+          option.onclick = () => {
+            const isSelected = option.getAttribute('aria-pressed') === 'true';
+            option.setAttribute('aria-pressed', String(!isSelected));
+            option.querySelector('.subject-check').textContent = isSelected ? '' : '✓';
+            if (isSelected && option.dataset.conflict === 'true') option.disabled = true;
+          };
+        });
+        saveButton.disabled = false;
+      };
+      const loadCatalog = async () => {
+        const request = ++catalogRequest;
+        catalog = [];
+        saveButton.disabled = true;
+        optionsContainer.classList.add('muted');
+        optionsContainer.textContent = 'Loading subjects…';
+        m.el.querySelector('#subject-save-warning').hidden = true;
+        try {
+          catalog = await api(`/faculty/subject-catalog?campus=${encodeURIComponent(selectedCampus)}`);
+          if (request === catalogRequest) drawCatalog();
+        } catch (error) {
+          if (request !== catalogRequest) return;
+          optionsContainer.textContent = 'Could not load subjects.';
+          m.el.querySelector('#subject-save-warning').textContent = error.message;
+          m.el.querySelector('#subject-save-warning').hidden = false;
+          toast(error.message, 'error');
+        }
+      };
+      const campusSelect = m.el.querySelector('#subject-campus');
+      if (campusSelect) {
+        campusSelect.onchange = () => {
+          selectedCampus = campusSelect.value;
+          catalog = [];
+          catalogRequest += 1;
+          if (!selectedCampus) {
+            saveButton.disabled = true;
+            optionsContainer.classList.add('muted');
+            optionsContainer.textContent = 'Select a college to view its subjects.';
+            return;
+          }
+          loadCatalog();
         };
-      });
+        saveButton.disabled = true;
+      } else {
+        await loadCatalog();
+      }
       m.el.querySelector('#subject-search').oninput = event => {
         const query = event.target.value.trim().toLowerCase();
         m.el.querySelectorAll('.subject-option').forEach(option => {
           option.hidden = !option.textContent.toLowerCase().includes(query);
         });
       };
-      m.el.querySelector('#save-subjects').onclick = async event => {
+      saveButton.onclick = async event => {
         const button = event.currentTarget;
         button.disabled = true;
         try {
@@ -123,7 +173,7 @@ export async function render(root, { user }) {
             button.disabled = false;
             return;
           }
-          await api('/faculty/my-subjects', { method: 'PUT', body: { subjects } });
+          await api('/faculty/my-subjects', { method: 'PUT', body: { campus: selectedCampus, subjects } });
           m.close();
           toast('Subjects saved');
           await render(root, { user });

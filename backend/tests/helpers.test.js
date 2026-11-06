@@ -1,11 +1,11 @@
 const test = require('node:test'), assert = require('node:assert');
-const { csvCell, pct, dateIsFuture, sortStudentsByRollNo } = require('../utils/helpers');
+const { csvCell, pct, dateIsFuture, sortStudentsByRollNo, sortStudentsByAttendanceSection } = require('../utils/helpers');
 const XLSX = require('@e965/xlsx'), { excelRows, spreadsheetRows, writeSpreadsheetRows } = require('../utils/excel');
 const { planClassSync } = require('../utils/classSync');
 const { planSubjectSync } = require('../utils/subjectSync');
 const { uploadedSubjectsForStudent, uploadedSubjectsFromFiles } = require('../utils/uploadedSubjects');
 const { inferDepartmentCampus } = require('../utils/campusForDepartment');
-const { averageAttendance, averageRecentAttendance } = require('../utils/facultyAttendance');
+const { averageAttendance, averageRecentAttendance, averageAttendanceBySection } = require('../utils/facultyAttendance');
 test('csv escapes quotes and blocks formula injection', () => { assert.strictEqual(csvCell('=1+1'), "'=1+1"); assert.strictEqual(csvCell('a,"b"'), '"a,""b"""'); });
 test('percentage ignores zero totals', () => { assert.strictEqual(pct(0, 0), null); assert.strictEqual(pct(3, 1), 75); });
 test('student lists sort by roll number and place missing roll numbers last', () => {
@@ -19,6 +19,19 @@ test('student lists sort by roll number and place missing roll numbers last', ()
     'Student 1056',
     'No roll number'
   ]);
+});
+test('student lists group Birt before Birts and sort roll numbers within each group', () => {
+  const students = [
+    { name: 'Birts without roll', attendanceSection: 'Birts', rollNo: '' },
+    { name: 'Birts 2', attendanceSection: 'Birts', rollNo: '2' },
+    { name: 'Birt 10', attendanceSection: 'Birt', rollNo: '10' },
+    { name: 'Birt without roll', attendanceSection: 'Birt', rollNo: '' },
+    { name: 'Birt 2', attendanceSection: 'Birt', rollNo: '2' }
+  ];
+  assert.deepStrictEqual(
+    sortStudentsByAttendanceSection(students).map(student => student.name),
+    ['Birt 2', 'Birt 10', 'Birt without roll', 'Birts 2', 'Birts without roll']
+  );
 });
 test('average subject attendance is present student-slots divided by all student-slots', () => {
   const result = averageAttendance({ presentTotal: 5 * 10, studentTotal: 10 * 10, totalDays: 10 });
@@ -41,6 +54,35 @@ test('recent average uses the current roster size for legacy histories', () => {
     { date: '2026-11-02', createdAt: '2026-11-02T10:00:00Z', students: [] }
   ];
   assert.deepStrictEqual(averageRecentAttendance(histories, 2), { present: 0.5, total: 2, percentage: 25 });
+});
+test('section averages use section rosters and identify legacy history students by roster', () => {
+  const roster = [
+    { id: 'birt-1', attendanceSection: 'Birt' },
+    { id: 'birt-2', attendanceSection: 'Birt' },
+    { id: 'birts-1', attendanceSection: 'Birts' }
+  ];
+  const histories = [
+    { date: '2026-11-02', students: [{ id: 'birt-1' }, { id: 'birts-1' }] },
+    { date: '2026-11-01', students: [{ id: 'birt-1' }, { id: 'birt-2' }] }
+  ];
+  assert.deepStrictEqual(averageAttendanceBySection(histories, roster), {
+    Birt: { present: 1.5, total: 2, percentage: 75 },
+    Birts: { present: 0.5, total: 1, percentage: 50 }
+  });
+});
+test('section averages match recreated students by a unique roll number in older histories', () => {
+  const roster = [
+    { id: 'new-birt-id', rollNo: 'ROLL-1', attendanceSection: 'Birt' },
+    { id: 'birts-id', rollNo: 'ROLL-2', attendanceSection: 'Birts' }
+  ];
+  const histories = [{
+    date: '2026-11-02',
+    students: [{ id: 'old-birt-id', rollNo: 'roll-1' }]
+  }];
+  assert.deepStrictEqual(averageAttendanceBySection(histories, roster), {
+    Birt: { present: 1, total: 1, percentage: 100 },
+    Birts: { present: 0, total: 1, percentage: 0 }
+  });
 });
 test('future attendance date check uses the faculty local timezone offset', () => {
   const now = new Date();

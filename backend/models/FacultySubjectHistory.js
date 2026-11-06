@@ -10,7 +10,8 @@ const schema = new mongoose.Schema({
   students: [{
     id: { type: String, required: true },
     name: { type: String, required: true },
-    rollNo: { type: String, trim: true, default: '' }
+    rollNo: { type: String, trim: true, default: '' },
+    attendanceSection: { type: String, enum: ['Birt', 'Birts'] }
   }]
 }, { timestamps: true });
 

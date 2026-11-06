@@ -27,10 +27,18 @@ const registrationSchema = z.object({
   rollNo: z.string().trim().min(1).max(30),
   branch: z.enum(['Data Science', 'CSE', 'AIML', 'Cyber Security', 'ME', 'IT', 'MCA', 'MBA', 'BBA', 'Other']),
   campus: z.enum(['BIRT', 'BIRTS', 'BIST']),
+  attendanceSection: z.enum(['Birt', 'Birts']).optional(),
   department: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid department'),
   semester: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid semester'),
   section: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid class')
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  if (['BIRT', 'BIRTS'].includes(data.campus) && !data.attendanceSection) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['attendanceSection'], message: 'Select an attendance section.' });
+  }
+  if (data.campus === 'BIST' && data.attendanceSection) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['attendanceSection'], message: 'Attendance section is not required for this college.' });
+  }
+});
 const otpSchema = emailSchema.extend({ otp: z.string().regex(/^\d{6}$/, 'Enter the six-digit verification code') }).strict();
 const staffRegistrationSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -107,7 +115,7 @@ async function deliverRegistrationOtp(challenge) {
 }
 
 r.post('/register/request-otp', registrationLimiter, validate(registrationSchema), ah(async (req, res) => {
-  const { name, email, password, phone, instId, rollNo, branch, campus, department, semester, section } = req.body;
+  const { name, email, password, phone, instId, rollNo, branch, campus, attendanceSection, department, semester, section } = req.body;
   if (await User.exists({ $or: [{ email }, ...(instId ? [{ instId }] : [])] })) throw fail(409, 'An account with this email or institution ID already exists.');
   const selectedClass = await Section.findOne({ _id: section, campus, department, semester }).select('_id').lean();
   if (!selectedClass) throw fail(400, 'Choose a class belonging to the selected college and department.');
@@ -126,6 +134,7 @@ r.post('/register/request-otp', registrationLimiter, validate(registrationSchema
     department,
     branch,
     campus,
+    attendanceSection,
     role: 'student',
     semester,
     section: selectedClass._id,
@@ -173,6 +182,7 @@ r.post('/register/verify-otp', verificationLimiter, validate(otpSchema), ah(asyn
     department: challenge.department,
     branch: challenge.branch,
     campus: challenge.campus,
+    attendanceSection: challenge.attendanceSection,
     phone: challenge.phone,
     semester: challenge.semester,
     section: challenge.section,

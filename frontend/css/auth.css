@@ -61,6 +61,7 @@
 .register-form input,.register-form select{width:100%;padding:.65rem .75rem;border:1px solid #dfe5ed;background:#fff;color:#243247;font:inherit}
 .register-form input:focus,.register-form select:focus{outline:3px solid #e4edff;border-color:#3974df}
 .register-form .text-link{align-self:flex-start}
+.register-hint{margin-top:-.35rem;color:#c62828;font-size:.82rem}
 .register-status{color:#18794e!important}
 .dialog-form .login-submit{margin-top:1rem}
 .dialog-close{width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:9px;background:#f2f5f9;color:#566478;font-size:1.4rem;cursor:pointer}

@@ -3,6 +3,34 @@ import { html, fmtDate } from '../js/utils.js';
 import { download, modal, toast } from '../js/components.js';
 
 const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const attendanceSectionNames = ['Birt', 'Birts'];
+const sortAttendanceStudents = students => [...students].sort((a, b) => {
+  const sectionA = attendanceSectionNames.indexOf(a.attendanceSection);
+  const sectionB = attendanceSectionNames.indexOf(b.attendanceSection);
+  const sectionOrder = (sectionA < 0 ? 2 : sectionA) - (sectionB < 0 ? 2 : sectionB);
+  if (sectionOrder) return sectionOrder;
+  const rollA = String(a.rollNo || '').trim();
+  const rollB = String(b.rollNo || '').trim();
+  if (!rollA && rollB) return 1;
+  if (rollA && !rollB) return -1;
+  return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' })
+    || String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+});
+const attendanceStudentGroups = (students, grouped) => grouped
+  ? [
+      ...attendanceSectionNames.map(section => ({
+        section,
+        students: sortAttendanceStudents(students.filter(student => student.attendanceSection === section))
+      })),
+      ...(() => {
+        const ungrouped = students.filter(student => !attendanceSectionNames.includes(student.attendanceSection));
+        return ungrouped.length ? [{ section: '', students: sortAttendanceStudents(ungrouped) }] : [];
+      })()
+    ]
+  : [{ section: '', students }];
+const renderStudentGroups = (students, grouped, renderStudent) => html`${attendanceStudentGroups(students, grouped).map(group => html`
+  ${group.section ? html`<div class="attendance-section-heading"><strong>⭐ ${group.section}</strong></div>` : ''}
+  ${group.students.map(renderStudent)}`)}`;
 
 export async function render(root) {
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
@@ -15,6 +43,7 @@ export async function render(root) {
     root.innerHTML = String(html`<div class="card"><strong>Subject not found</strong><p><a href="#/faculty/dashboard">Back to dashboard</a></p></div>`);
     return;
   }
+  const groupedByAttendanceSection = ['BIRT', 'BIRTS'].includes(subject.campus);
 
   const historyId = params.get('history');
   if (historyId) {
@@ -22,12 +51,18 @@ export async function render(root) {
       api(`/faculty/subject-history/${encodeURIComponent(historyId)}?subject=${encodeURIComponent(catalogId)}`),
       api(`/faculty/subject-students?subject=${encodeURIComponent(catalogId)}`)
     ]);
+    const rosterById = new Map(roster.map(student => [String(student.id), student]));
+    const historyStudents = sortAttendanceStudents(history.students.map(student => ({
+      ...rosterById.get(String(student.id)),
+      ...student,
+      attendanceSection: student.attendanceSection || rosterById.get(String(student.id))?.attendanceSection
+    })));
     const canEdit = history.isOwner && Date.now() - new Date(history.createdAt).getTime() <= 6 * 60 * 60 * 1000;
     root.innerHTML = String(html`<div class="card"><p><a href="#/faculty/subject?subject=${encodeURIComponent(catalogId)}">← History</a></p>
       <h2>## ${history.code} · ${history.date} · Lecture ${history.lectureNo || '-'}</h2>
       <p class="muted">Recorded by: ${history.facultyName}${history.facultyPhone ? ` · Mobile: ${history.facultyPhone}` : ''}</p>
       <p class="muted">Present ${history.students.length}/${history.totalStudents ?? roster.length}</p>
-      <div id="history-students">${history.students.length ? html`<div class="student-attendance-list">${history.students.map(student => html`<div class="student-attendance-row"><span>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</span><input type="checkbox" checked disabled aria-label="${student.name} was selected"></div>`)}</div>` : html`<div class="empty"><strong>No students were selected</strong></div>`}</div>
+      <div id="history-students">${history.students.length ? html`<div class="student-attendance-list">${renderStudentGroups(historyStudents, groupedByAttendanceSection, student => html`<div class="student-attendance-row"><span>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</span><input type="checkbox" checked disabled aria-label="${student.name} was selected"></div>`)}</div>` : html`<div class="empty"><strong>No students were selected</strong></div>`}</div>
       ${canEdit ? html`<div class="history-actions"><button class="btn primary" id="edit-history" type="button">Edit</button></div>` : html`<p class="muted">${history.isOwner ? 'Editing is available for 6 hours after saving.' : 'Only the faculty member who recorded this history can edit it.'}</p>`}
     </div>`);
     if (canEdit) {
@@ -37,7 +72,7 @@ export async function render(root) {
         try {
           const selected = new Set(history.students.map(student => student.id));
           const studentsRoot = root.querySelector('#history-students');
-          studentsRoot.innerHTML = String(html`${roster.length ? html`<div class="student-attendance-list">${roster.map(student => html`<label class="student-attendance-row"><span>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</span><input type="checkbox" value="${student.id}" ${selected.has(student.id) ? 'checked' : ''} aria-label="Select ${student.name}"></label>`)}</div>` : html`<div class="empty"><strong>No students found for this subject</strong></div>`}`);
+          studentsRoot.innerHTML = String(html`${roster.length ? html`<div class="student-attendance-list">${renderStudentGroups(roster, groupedByAttendanceSection, student => html`<label class="student-attendance-row"><span>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</span><input type="checkbox" value="${student.id}" ${selected.has(student.id) ? 'checked' : ''} aria-label="Select ${student.name}"></label>`)}</div>` : html`<div class="empty"><strong>No students found for this subject</strong></div>`}`);
           editButton.textContent = 'Save changes';
           editButton.disabled = false;
           editButton.onclick = async saveEvent => {
@@ -69,7 +104,7 @@ export async function render(root) {
   if (selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) && Number.isInteger(selectedLecture) && selectedLecture >= 1 && selectedLecture <= 12) {
     const students = await api(`/faculty/subject-students?subject=${encodeURIComponent(catalogId)}`);
     root.innerHTML = String(html`<div class="card"><h2>${subject.code} · ${selectedDate} · Lecture ${selectedLecture}</h2>
-      ${students.length ? html`<div class="student-attendance-list">${students.map(student => html`<label class="student-attendance-row"><span>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</span><input type="checkbox" value="${student.id}" aria-label="Select ${student.name}"></label>`)}</div>` : html`<div class="empty"><strong>No students found for this subject</strong><p>Students whose branch and semester show this subject will appear here.</p></div>`}
+      ${students.length ? html`<div class="student-attendance-list">${renderStudentGroups(students, groupedByAttendanceSection, student => html`<label class="student-attendance-row"><span>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</span><input type="checkbox" value="${student.id}" aria-label="Select ${student.name}"></label>`)}</div>` : html`<div class="empty"><strong>No students found for this subject</strong><p>Students whose branch and semester show this subject will appear here.</p></div>`}
       <button class="btn primary" id="save-subject-history" type="button">Save</button>
     </div>`);
     root.querySelector('#save-subject-history').onclick = async event => {
@@ -138,7 +173,9 @@ export async function render(root) {
       });
       const totalClasses = historiesWithCounts.length;
       historyList.innerHTML = String(html`<div class="tbl-wrap"><table><thead><tr><th scope="col">Student name</th><th scope="col">Total classes</th><th scope="col">Present</th><th scope="col">Absent</th><th scope="col">Attendance %</th><th scope="col">View absent</th></tr></thead>
-        <tbody>${roster.map(student => {
+        <tbody>${attendanceStudentGroups(roster, groupedByAttendanceSection).map(group => html`
+          ${group.section ? html`<tr class="attendance-section-row"><th scope="rowgroup" colspan="6"><strong>⭐ ${group.section}</strong></th></tr>` : ''}
+          ${group.students.map(student => {
           const studentId = String(student.id);
           const present = attendedByStudent.get(String(student.id)) || 0;
           const absent = totalClasses - present;
@@ -146,7 +183,7 @@ export async function render(root) {
           const absentDates = absentDatesByStudent.get(studentId);
           return html`<tr><td>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</td><td>${totalClasses}</td><td>${present}</td><td>${absent}</td><td>${percentage}%</td><td><button class="btn sm danger" type="button" data-view-absent="${studentId}" aria-expanded="false">View absent</button></td></tr>
             <tr data-absent-dates="${studentId}" hidden><td colspan="6"><strong>Absent dates:</strong> ${absentDates.length ? absentDates.map(date => date.split('-').reverse().join('/')).join(', ') : 'None'}</td></tr>`;
-        })}</tbody></table></div><button class="btn" id="download-master-sheet" type="button">Download master sheet</button>`);
+        })}`)}</tbody></table></div><button class="btn" id="download-master-sheet" type="button">Download master sheet</button>`);
       historyList.querySelectorAll('[data-view-absent]').forEach(button => {
         button.onclick = () => {
           const expanded = button.getAttribute('aria-expanded') === 'true';
@@ -200,9 +237,15 @@ export async function render(root) {
           daily: dates.map(date => presentByDate.get(date).has(String(student.id)) ? 'P' : 'A')
         };
       });
+      const attendanceRowsById = new Map(attendanceRows.map(row => [String(row.student.id), row]));
       historyList.innerHTML = String(html`<div class="attendance-history-heading"><h3>${month.slice(5, 7)}/${month.slice(0, 4)}</h3><button class="btn sm" id="back-to-months" type="button">Back to months</button></div>
         <div class="tbl-wrap"><table><thead><tr><th scope="col">Student name</th>${dates.map(date => html`<th scope="col">${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}</th>`)}<th scope="col">Total classes</th><th scope="col">Attended</th><th scope="col">Absent</th><th scope="col">Attendance %</th></tr></thead>
-        <tbody>${attendanceRows.map(({ student, attended, absent, percentage, daily }) => html`<tr><td>${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}</td>${daily.map(status => html`<td aria-label="${student.name}: ${status === 'P' ? 'Present' : 'Absent'}">${status}</td>`)}<td>${monthHistories.length}</td><td>${attended}</td><td>${absent}</td><td>${percentage}%</td></tr>`)}</tbody></table></div>
+        <tbody>${attendanceStudentGroups(attendanceRows.map(row => row.student), groupedByAttendanceSection).map(group => html`
+          ${group.section ? html`<tr class="attendance-section-row"><th scope="rowgroup" colspan="${dates.length + 5}"><strong>⭐ ${group.section}</strong></th></tr>` : ''}
+          ${group.students.map(student => {
+            const row = attendanceRowsById.get(String(student.id));
+            return html`<tr><td>${row.student.name}${row.student.rollNo ? ` · ${row.student.rollNo}` : ''}</td>${row.daily.map(status => html`<td aria-label="${row.student.name}: ${status === 'P' ? 'Present' : 'Absent'}">${status}</td>`)}<td>${monthHistories.length}</td><td>${row.attended}</td><td>${row.absent}</td><td>${row.percentage}%</td></tr>`;
+          })}`)}</tbody></table></div>
         <button class="btn" id="download-month-attendance" type="button">Download attendance</button>`);
       historyList.querySelector('#download-month-attendance').onclick = () => {
         const headers = [
@@ -213,13 +256,19 @@ export async function render(root) {
           'Absent',
           'Attendance %'
         ];
-        const rows = attendanceRows.map(({ student, attended, absent, percentage, daily }) => [
-          `${student.name}${student.rollNo ? ` · ${student.rollNo}` : ''}`,
-          ...daily,
-          monthHistories.length,
-          attended,
-          absent,
-          `${percentage}%`
+        const rows = attendanceStudentGroups(attendanceRows.map(row => row.student), groupedByAttendanceSection).flatMap(group => [
+          ...(group.section ? [[`⭐ ${group.section}`]] : []),
+          ...group.students.map(student => {
+            const row = attendanceRowsById.get(String(student.id));
+            return [
+              `${row.student.name}${row.student.rollNo ? ` · ${row.student.rollNo}` : ''}`,
+              ...row.daily,
+              monthHistories.length,
+              row.attended,
+              row.absent,
+              `${row.percentage}%`
+            ];
+          })
         ]);
         const csv = [headers, ...rows].map(row => row.map(csvEscape).join(',')).join('\r\n');
         download(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }), `${subject.code}-${month}-attendance.csv`);

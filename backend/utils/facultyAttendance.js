@@ -22,3 +22,33 @@ exports.averageRecentAttendance = (histories, legacyRosterSize, limit = 5) => {
     totalDays: recent.length
   });
 };
+exports.averageAttendanceBySection = (histories, roster, limit = 5) => {
+  const recent = [...histories]
+    .sort((a, b) => String(b.date).localeCompare(String(a.date))
+      || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, limit);
+  const rosterById = new Map(roster.map(student => [String(student.id || student._id), student]));
+  const sectionsByRollNo = new Map();
+  roster.forEach(student => {
+    const rollNo = String(student.rollNo || '').trim().toLowerCase();
+    if (!rollNo) return;
+    if (!sectionsByRollNo.has(rollNo)) sectionsByRollNo.set(rollNo, new Set());
+    sectionsByRollNo.get(rollNo).add(student.attendanceSection);
+  });
+  return Object.fromEntries(['Birt', 'Birts'].map(section => {
+    const sectionSize = roster.filter(student => student.attendanceSection === section).length;
+    if (!recent.length || !sectionSize) return [section, null];
+    const presentTotal = recent.reduce((total, history) => total + history.students.filter(student => {
+      const currentStudent = rosterById.get(String(student.id));
+      const rollNo = String(student.rollNo || '').trim().toLowerCase();
+      const rollSections = rollNo ? sectionsByRollNo.get(rollNo) : null;
+      const sectionFromRollNo = rollSections?.size === 1 ? [...rollSections][0] : undefined;
+      return (student.attendanceSection || currentStudent?.attendanceSection || sectionFromRollNo) === section;
+    }).length, 0);
+    return [section, exports.averageAttendance({
+      presentTotal,
+      studentTotal: sectionSize * recent.length,
+      totalDays: recent.length
+    })];
+  }));
+};

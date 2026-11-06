@@ -6,6 +6,7 @@ const schema = new mongoose.Schema({
   rollNo: { type: String, trim: true, maxlength: 30 },
   branch: { type: String, trim: true, maxlength: 40 },
   campus: { type: String, enum: ['BIRT', 'BIRTS', 'BIST'] },
+  attendanceSection: { type: String, enum: ['Birt', 'Birts'] },
   department: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', required: true },
   phone: { type: String, trim: true, maxlength: 20 },
   role: { type: String, enum: ['student', 'hod', 'faculty'], default: 'student', required: true },

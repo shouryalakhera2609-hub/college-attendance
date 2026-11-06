@@ -92,11 +92,12 @@ export function render(root) {
           <div id="register-fields">
             <label for="register-name">Full name</label><input id="register-name" name="name" autocomplete="name" maxlength="100" required>
             <label for="register-email">Email address</label><input id="register-email" name="email" type="email" autocomplete="email" maxlength="254" required>
-            <label for="register-roll-no">Roll number</label><input id="register-roll-no" name="rollNo" maxlength="30" required>
+            <label for="register-roll-no">Roll number</label><small class="register-hint">Roll number is required. If you don't have one, type NA.</small><input id="register-roll-no" name="rollNo" maxlength="30" required>
             <label for="register-phone">Mobile number</label><input id="register-phone" name="phone" type="tel" autocomplete="tel" minlength="7" maxlength="20" required>
             <label for="register-branch">Branch</label><select id="register-branch" name="branch" required><option value="">Select a branch</option><option value="Data Science">Data Science</option><option value="CSE">CSE</option><option value="AIML">AIML</option><option value="Cyber Security">Cyber Security</option><option value="ME">ME</option><option value="IT">IT</option><option value="MCA">MCA</option><option value="MBA">MBA</option><option value="BBA">BBA</option><option value="Other">Other</option></select>
             <label for="register-department">Department</label><select id="register-department" name="department" required><option value="">Loading departments…</option></select>
-            <label for="register-campus">College</label><select id="register-campus" name="campus" required><option value="">Select a college</option><option value="BIRT">BIRT</option><option value="BIRTS">BIRTS</option><option value="BIST">BIST</option></select>
+            <label for="register-campus">College</label><small class="register-hint">Please select the building where you study.</small><select id="register-campus" name="campus" required><option value="">Select a college</option><option value="BIRT">BIRT</option><option value="BIRTS">BIRTS</option><option value="BIST">BIST</option></select>
+            <div id="register-attendance-section-field" hidden><label for="register-attendance-section">Attendance Section</label><select id="register-attendance-section" name="attendanceSection"><option value="">Select an attendance section</option><option value="Birt">Birt</option><option value="Birts">Birts</option></select></div>
             <label for="register-semester">Semester</label><select id="register-semester" name="semester" required disabled><option value="">Loading semesters…</option></select>
             <label for="register-class">Choose class</label><select id="register-class" name="section" required disabled><option value="">Select college, department, and semester first</option></select>
             <small id="register-class-help" class="register-status" hidden></small>
@@ -169,6 +170,8 @@ export function render(root) {
   const departmentSelect = root.querySelector('#register-department');
   const semesterSelect = root.querySelector('#register-semester');
   const campusSelect = root.querySelector('#register-campus');
+  const attendanceSectionField = root.querySelector('#register-attendance-section-field');
+  const attendanceSectionSelect = root.querySelector('#register-attendance-section');
   const classSelect = root.querySelector('#register-class');
   const classHelp = root.querySelector('#register-class-help');
   let registrationOptions;
@@ -207,6 +210,8 @@ export function render(root) {
     registerFields.querySelectorAll('select').forEach(select => { select.disabled = false; });
     classSelect.disabled = true;
     semesterSelect.disabled = !registrationOptionsReady;
+    attendanceSectionField.hidden = true;
+    attendanceSectionSelect.required = false;
     setSelectOptions(classSelect, 'Select college, department, and semester first', []);
     if (registrationOptions) {
       setSelectOptions(semesterSelect, 'Select a semester', registrationOptions.semesters.map(s => ({ value: s._id, label: s.name })));
@@ -281,7 +286,13 @@ export function render(root) {
     }
   };
   departmentSelect.onchange = loadRegistrationClasses;
-  campusSelect.onchange = loadRegistrationClasses;
+  campusSelect.onchange = () => {
+    const showAttendanceSection = campusSelect.value === 'BIRT' || campusSelect.value === 'BIRTS';
+    attendanceSectionField.hidden = !showAttendanceSection;
+    attendanceSectionSelect.required = showAttendanceSection;
+    if (!showAttendanceSection) attendanceSectionSelect.value = '';
+    loadRegistrationClasses();
+  };
   semesterSelect.onchange = loadRegistrationClasses;
   root.querySelector('#register-resend').onclick = async event => {
     const button = event.currentTarget;
@@ -425,6 +436,7 @@ export function render(root) {
             branch: root.querySelector('#register-branch').value,
             department: departmentSelect.value,
             campus: campusSelect.value,
+            attendanceSection: attendanceSectionSelect.value || undefined,
             semester: semesterSelect.value,
             section: classSelect.value,
           }
