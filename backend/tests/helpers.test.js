@@ -3,9 +3,9 @@ const { csvCell, pct, dateIsFuture, sortStudentsByRollNo, sortStudentsByAttendan
 const XLSX = require('@e965/xlsx'), { excelRows, spreadsheetRows, writeSpreadsheetRows } = require('../utils/excel');
 const { planClassSync } = require('../utils/classSync');
 const { planSubjectSync } = require('../utils/subjectSync');
-const { uploadedSubjectsForStudent, uploadedSubjectsFromFiles } = require('../utils/uploadedSubjects');
+const { uploadedSubjectsForStudent, uploadedSubjectsFromFiles, branchMatches } = require('../utils/uploadedSubjects');
 const { inferDepartmentCampus } = require('../utils/campusForDepartment');
-const { averageAttendance, averageRecentAttendance, averageAttendanceBySection } = require('../utils/facultyAttendance');
+const { averageAttendance, averageRecentAttendance, averageAttendanceBySection, averageOfSubjectPercentages } = require('../utils/facultyAttendance');
 test('csv escapes quotes and blocks formula injection', () => { assert.strictEqual(csvCell('=1+1'), "'=1+1"); assert.strictEqual(csvCell('a,"b"'), '"a,""b"""'); });
 test('percentage ignores zero totals', () => { assert.strictEqual(pct(0, 0), null); assert.strictEqual(pct(3, 1), 75); });
 test('student lists sort by roll number and place missing roll numbers last', () => {
@@ -37,7 +37,12 @@ test('average subject attendance is present student-slots divided by all student
   const result = averageAttendance({ presentTotal: 5 * 10, studentTotal: 10 * 10, totalDays: 10 });
   assert.deepStrictEqual(result, { present: 5, total: 10, percentage: 50 });
 });
-test('average subject attendance uses only the latest five histories', () => {
+test('faculty average is the mean of displayed subject percentages', () => {
+  assert.strictEqual(averageOfSubjectPercentages([50, 50, 50, 100]), 62.5);
+  assert.strictEqual(averageOfSubjectPercentages([50, null, 100]), 75);
+  assert.strictEqual(averageOfSubjectPercentages([]), null);
+});
+test('average subject attendance uses only the latest three histories', () => {
   const histories = [
     { date: '2026-11-01', createdAt: '2026-11-01T10:00:00Z', students: ['a'], totalStudents: 2 },
     { date: '2026-11-02', createdAt: '2026-11-02T10:00:00Z', students: ['a'], totalStudents: 2 },
@@ -46,7 +51,7 @@ test('average subject attendance uses only the latest five histories', () => {
     { date: '2026-11-05', createdAt: '2026-11-05T10:00:00Z', students: [], totalStudents: 2 },
     { date: '2026-11-06', createdAt: '2026-11-06T10:00:00Z', students: [], totalStudents: 2 }
   ];
-  assert.deepStrictEqual(averageRecentAttendance(histories, 0), { present: 0.4, total: 2, percentage: 20 });
+  assert.deepStrictEqual(averageRecentAttendance(histories, 0), { present: 0, total: 2, percentage: 0 });
 });
 test('recent average uses the current roster size for legacy histories', () => {
   const histories = [
@@ -54,6 +59,14 @@ test('recent average uses the current roster size for legacy histories', () => {
     { date: '2026-11-02', createdAt: '2026-11-02T10:00:00Z', students: [] }
   ];
   assert.deepStrictEqual(averageRecentAttendance(histories, 2), { present: 0.5, total: 2, percentage: 25 });
+});
+test('department average uses at most three histories across ten students', () => {
+  const histories = [
+    { date: '2026-11-01', createdAt: '2026-11-01T10:00:00Z', students: Array.from({ length: 5 }, (_, index) => String(index)), totalStudents: 10 },
+    { date: '2026-11-02', createdAt: '2026-11-02T10:00:00Z', students: Array.from({ length: 5 }, (_, index) => String(index)), totalStudents: 10 },
+    { date: '2026-11-03', createdAt: '2026-11-03T10:00:00Z', students: Array.from({ length: 5 }, (_, index) => String(index)), totalStudents: 10 }
+  ];
+  assert.deepStrictEqual(averageRecentAttendance(histories, 10), { present: 5, total: 10, percentage: 50 });
 });
 test('section averages use section rosters and identify legacy history students by roster', () => {
   const roster = [
@@ -154,6 +167,21 @@ test('class CSV sync keys otherwise identical classes by campus', () => {
   assert.deepStrictEqual(plan.toCreate, [{ name: 'CSE-A', department: 'dept', semester: 'sem', campus: 'BIST' }]);
   assert.deepStrictEqual(plan.obsoleteIds, ['birt']);
 });
+test('class CSV sync preserves existing class records when adding branch data', () => {
+  const plan = planClassSync(
+    [{ _id: 'existing', name: 'CSE-A', department: 'dept', semester: 'sem', campus: 'BIRT' }],
+    [{ name: 'CSE-A', department: 'dept', semester: 'sem', campus: 'BIRT', branch: 'Data Science' }]
+  );
+  assert.deepStrictEqual(plan.desiredSectionIds, ['existing']);
+  assert.deepStrictEqual(plan.toUpdate, [{ _id: 'existing', branch: 'Data Science' }]);
+  assert.deepStrictEqual(plan.toCreate, []);
+  assert.deepStrictEqual(plan.obsoleteIds, []);
+});
+test('class registration branch matching accepts branch labels and rejects other branches', () => {
+  assert.strictEqual(branchMatches('CSE-Data Science', 'Data Science'), true);
+  assert.strictEqual(branchMatches('Cyber Security', 'Cyber Security'), true);
+  assert.strictEqual(branchMatches('Mechanical', 'Data Science'), false);
+});
 test('subject CSV sync preserves duplicate rows and removes subjects missing from the file', () => {
   const existing = [
     { _id: 'one', code: 'CS1', name: 'Programming', semester: 'sem1' },
@@ -242,6 +270,23 @@ test('student subject lists without a branch column match by semester', () => {
     fileName: 'subjects.csv',
     content: Buffer.from('Subject Code,Subject Name,Semester\nCD-501,Data Systems,5th\nCD-301,Data Systems,3rd')
   }];
+  assert.deepStrictEqual(uploadedSubjectsForStudent({
+    files,
+    semester: 5,
+    branch: 'Data Science'
+  }), [{ code: 'CD-501', name: 'Data Systems', semester: 5 }]);
+});
+test('student subject list reads subject names and fills blank names from another upload', () => {
+  const files = [
+    {
+      fileName: 'latest_subjects.csv',
+      content: Buffer.from('Branch,Semester,Subject Code,Subject Name\nData Science,5,CD-501,')
+    },
+    {
+      fileName: 'older_subjects.csv',
+      content: Buffer.from('Branch,Semester,Subject Code,Subject Name\nData Science,5,CD-501,Data Systems')
+    }
+  ];
   assert.deepStrictEqual(uploadedSubjectsForStudent({
     files,
     semester: 5,

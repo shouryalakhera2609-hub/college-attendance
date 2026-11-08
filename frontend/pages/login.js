@@ -58,8 +58,8 @@ export function render(root) {
           <div id="staff-register-fields">
             <label for="hod-name">Full name</label><input id="hod-name" name="name" autocomplete="name" maxlength="100" required>
             <label for="hod-inst-id">Employee ID</label><input id="hod-inst-id" name="instId" maxlength="30" required>
-            <label for="hod-department">Select department</label><select id="hod-department" name="department" required><option value="">Loading departments…</option></select>
             <label for="hod-campus">Select college</label><select id="hod-campus" name="campus" required><option value="">Select college</option><option value="BIRT">BIRT</option><option value="BIRTS">BIRTS</option><option value="BIST">BIST</option></select>
+            <label for="hod-department">Select department</label><select id="hod-department" name="department" required disabled><option value="">Select a college first</option></select>
             <label for="hod-phone">Phone number</label><input id="hod-phone" name="phone" type="tel" autocomplete="tel" maxlength="20" required>
             <label for="hod-email">Gmail address</label><input id="hod-email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="name@gmail.com" required>
             <label for="hod-password">Create password (min 6 chars)</label><input id="hod-password" name="password" type="password" autocomplete="new-password" minlength="6" maxlength="128" required>
@@ -94,12 +94,12 @@ export function render(root) {
             <label for="register-email">Email address</label><input id="register-email" name="email" type="email" autocomplete="email" maxlength="254" required>
             <label for="register-roll-no">Roll number</label><small class="register-hint">Roll number is required. If you don't have one, type NA.</small><input id="register-roll-no" name="rollNo" maxlength="30" required>
             <label for="register-phone">Mobile number</label><input id="register-phone" name="phone" type="tel" autocomplete="tel" minlength="7" maxlength="20" required>
-            <label for="register-branch">Branch</label><select id="register-branch" name="branch" required><option value="">Select a branch</option><option value="Data Science">Data Science</option><option value="CSE">CSE</option><option value="AIML">AIML</option><option value="Cyber Security">Cyber Security</option><option value="ME">ME</option><option value="IT">IT</option><option value="MCA">MCA</option><option value="MBA">MBA</option><option value="BBA">BBA</option><option value="Other">Other</option></select>
-            <label for="register-department">Department</label><select id="register-department" name="department" required><option value="">Loading departments…</option></select>
             <label for="register-campus">College</label><small class="register-hint">Please select the building where you study.</small><select id="register-campus" name="campus" required><option value="">Select a college</option><option value="BIRT">BIRT</option><option value="BIRTS">BIRTS</option><option value="BIST">BIST</option></select>
+            <label for="register-department">Department</label><select id="register-department" name="department" required disabled><option value="">Select a college first</option></select>
+            <label for="register-branch">Branch</label><select id="register-branch" name="branch" required disabled><option value="">Select department first</option></select>
             <div id="register-attendance-section-field" hidden><label for="register-attendance-section">Attendance Section</label><select id="register-attendance-section" name="attendanceSection"><option value="">Select an attendance section</option><option value="Birt">Birt</option><option value="Birts">Birts</option></select></div>
             <label for="register-semester">Semester</label><select id="register-semester" name="semester" required disabled><option value="">Loading semesters…</option></select>
-            <label for="register-class">Choose class</label><select id="register-class" name="section" required disabled><option value="">Select college, department, and semester first</option></select>
+            <label for="register-class">Choose class</label><select id="register-class" name="section" required disabled><option value="">Select college, department, semester, and branch first</option></select>
             <small id="register-class-help" class="register-status" hidden></small>
             <label for="register-password">Password (at least 10 characters)</label><input id="register-password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
           </div>
@@ -168,6 +168,7 @@ export function render(root) {
   const registerStatus = root.querySelector('#register-status');
   const registrationEmail = root.querySelector('#register-email');
   const departmentSelect = root.querySelector('#register-department');
+  const branchSelect = root.querySelector('#register-branch');
   const semesterSelect = root.querySelector('#register-semester');
   const campusSelect = root.querySelector('#register-campus');
   const attendanceSectionField = root.querySelector('#register-attendance-section-field');
@@ -177,30 +178,44 @@ export function render(root) {
   let registrationOptions;
   let registrationClasses = [];
   let classOptionsRequest = 0;
+  let branchOptionsRequest = 0;
+  let registrationOptionsRequest = 0;
   let registrationOptionsReady = false;
+  let registrationDepartmentsReady = false;
   let registrationPending = false;
   const setSelectOptions = (select, placeholder, options) => {
     select.replaceChildren(new Option(placeholder, ''));
     options.forEach(({ value, label }) => select.add(new Option(label, value)));
   };
-  const loadRegistrationOptions = async () => {
+  const loadRegistrationOptions = async campus => {
+    const requestId = ++registrationOptionsRequest;
     const submit = root.querySelector('#register-submit');
     submit.disabled = true;
     try {
-      registrationOptions = await api('/auth/register/options');
-      setSelectOptions(departmentSelect, 'Select a department', registrationOptions.departments.map(d => ({ value: d._id, label: d.name })));
+      const query = campus ? `?campus=${encodeURIComponent(campus)}` : '';
+      const options = await api(`/auth/register/options${query}`);
+      if (requestId !== registrationOptionsRequest) return;
+      registrationOptions = options;
+      setSelectOptions(departmentSelect, options.departments.length ? 'Select a department' : campus ? 'No departments uploaded for this college' : 'Select a college first', options.departments.map(d => ({ value: d._id, label: d.name })));
+      departmentSelect.disabled = !campus || !options.departments.length;
       setSelectOptions(semesterSelect, 'Select a semester', registrationOptions.semesters.map(s => ({ value: s._id, label: s.name })));
-      semesterSelect.disabled = false;
-      registrationOptionsReady = registrationOptions.departments.length > 0 && registrationOptions.semesters.length > 0;
-      if (!registrationOptionsReady) {
-        registerError.textContent = 'Student registration is unavailable until an administrator configures departments and semesters.';
+      semesterSelect.disabled = !registrationOptions.semesters.length;
+      registrationOptionsReady = registrationOptions.semesters.length > 0;
+      registrationDepartmentsReady = options.departments.length > 0;
+      if (!registrationOptionsReady || (campus && !registrationDepartmentsReady)) {
+        registerError.textContent = campus && !registrationDepartmentsReady
+          ? 'No departments have been uploaded for this college yet.'
+          : 'Student registration is unavailable until an administrator configures semesters.';
         registerError.hidden = false;
+      } else {
+        registerError.hidden = true;
       }
     } catch (error) {
+      if (requestId !== registrationOptionsRequest) return;
       registerError.textContent = `Could not load enrollment options: ${error.message}`;
       registerError.hidden = false;
     } finally {
-      submit.disabled = !registrationOptionsReady;
+      if (requestId === registrationOptionsRequest) submit.disabled = !registrationOptionsReady || !registrationDepartmentsReady;
     }
   };
   const resetRegistration = () => {
@@ -208,11 +223,18 @@ export function render(root) {
     registerForm.reset();
     registerFields.querySelectorAll('input').forEach(input => { input.disabled = false; });
     registerFields.querySelectorAll('select').forEach(select => { select.disabled = false; });
+    departmentSelect.disabled = true;
+    setSelectOptions(departmentSelect, 'Select a college first', []);
+    registrationDepartmentsReady = false;
+    classOptionsRequest++;
+    branchOptionsRequest++;
+    branchSelect.disabled = true;
+    setSelectOptions(branchSelect, 'Select department first', []);
     classSelect.disabled = true;
     semesterSelect.disabled = !registrationOptionsReady;
     attendanceSectionField.hidden = true;
     attendanceSectionSelect.required = false;
-    setSelectOptions(classSelect, 'Select college, department, and semester first', []);
+    setSelectOptions(classSelect, 'Select college, department, semester, and branch first', []);
     if (registrationOptions) {
       setSelectOptions(semesterSelect, 'Select a semester', registrationOptions.semesters.map(s => ({ value: s._id, label: s.name })));
     }
@@ -226,7 +248,7 @@ export function render(root) {
     root.querySelector('#register-help').textContent = 'Enter your details. We’ll email you a verification code before creating your account.';
     const submit = root.querySelector('#register-submit');
     submit.textContent = 'Send verification code';
-    submit.disabled = !registrationOptionsReady;
+    submit.disabled = !registrationOptionsReady || !registrationDepartmentsReady;
   };
   root.querySelector('#register-link').onclick = () => {
     if (selectedRole === 'hod' || selectedRole === 'faculty') {
@@ -236,16 +258,6 @@ export function render(root) {
       root.querySelector('#hod-register-title').textContent = `${staffTitle} Registration`;
       root.querySelector('#hod-register-submit').textContent = `Create ${staffTitle} account`;
       resetStaffRegistration();
-      if (!department.dataset.loaded) {
-        api('/auth/register/options').then(options => {
-          department.replaceChildren(new Option('Select department', ''));
-          options.departments.forEach(item => department.add(new Option(item.name, item._id)));
-          department.dataset.loaded = 'true';
-        }).catch(error => {
-          root.querySelector('#hod-register-error').textContent = `Could not load departments: ${error.message}`;
-          root.querySelector('#hod-register-error').hidden = false;
-        });
-      }
       dialog.showModal();
       return;
     }
@@ -261,21 +273,22 @@ export function render(root) {
     const department = departmentSelect.value;
     const campus = campusSelect.value;
     const semester = semesterSelect.value;
+    const branch = branchSelect.value;
     registrationClasses = [];
     classSelect.disabled = true;
     setSelectOptions(classSelect, 'Select college, department, and semester first', []);
     classHelp.hidden = true;
-    if (!department || !campus || !semester) return;
+    if (!department || !campus || !semester || !branch) return;
     classSelect.replaceChildren(new Option('Loading classes…', ''));
     try {
-      const classes = await api(`/auth/register/classes?campus=${encodeURIComponent(campus)}&department=${encodeURIComponent(department)}&semester=${encodeURIComponent(semester)}`);
+      const classes = await api(`/auth/register/classes?campus=${encodeURIComponent(campus)}&department=${encodeURIComponent(department)}&semester=${encodeURIComponent(semester)}&branch=${encodeURIComponent(branch)}`);
       if (requestId !== classOptionsRequest) return;
       registrationClasses = classes;
       setSelectOptions(classSelect, registrationClasses.length ? 'Select a class' : 'No classes found for this college, department, and semester', []);
       registrationClasses.forEach(item => classSelect.add(new Option(item.name, item._id)));
       classSelect.disabled = !registrationClasses.length;
       if (!registrationClasses.length) {
-        classHelp.textContent = 'No classes have been uploaded for this college, department, and semester.';
+        classHelp.textContent = 'No classes have been uploaded for this college, department, semester, and branch.';
         classHelp.hidden = false;
       }
     } catch (error) {
@@ -285,13 +298,54 @@ export function render(root) {
       classHelp.hidden = false;
     }
   };
-  departmentSelect.onchange = loadRegistrationClasses;
+  const loadRegistrationBranches = async () => {
+    const requestId = ++branchOptionsRequest;
+    classOptionsRequest++;
+    const campus = campusSelect.value;
+    const department = departmentSelect.value;
+    branchSelect.disabled = true;
+    setSelectOptions(branchSelect, department ? 'Loading branches…' : 'Select department first', []);
+    registrationClasses = [];
+    classSelect.disabled = true;
+    setSelectOptions(classSelect, 'Select college, department, semester, and branch first', []);
+    classHelp.hidden = true;
+    if (!campus || !department) return;
+    try {
+      const branches = await api(`/auth/register/branches?campus=${encodeURIComponent(campus)}&department=${encodeURIComponent(department)}`);
+      if (requestId !== branchOptionsRequest) return;
+      setSelectOptions(branchSelect, branches.length ? 'Select a branch' : 'No branches uploaded for this department', branches.map(branch => ({ value: branch, label: branch })));
+      branchSelect.disabled = !branches.length;
+      if (!branches.length) {
+        classHelp.textContent = 'No branches have been uploaded for this college and department.';
+        classHelp.hidden = false;
+      }
+    } catch (error) {
+      if (requestId !== branchOptionsRequest) return;
+      setSelectOptions(branchSelect, 'Could not load branches', []);
+      classHelp.textContent = `Could not load branches: ${error.message}`;
+      classHelp.hidden = false;
+    }
+  };
+  departmentSelect.onchange = () => {
+    loadRegistrationBranches();
+  };
+  branchSelect.onchange = loadRegistrationClasses;
   campusSelect.onchange = () => {
     const showAttendanceSection = campusSelect.value === 'BIRT' || campusSelect.value === 'BIRTS';
     attendanceSectionField.hidden = !showAttendanceSection;
     attendanceSectionSelect.required = showAttendanceSection;
     if (!showAttendanceSection) attendanceSectionSelect.value = '';
-    loadRegistrationClasses();
+    registrationDepartmentsReady = false;
+    departmentSelect.disabled = true;
+    setSelectOptions(departmentSelect, campusSelect.value ? 'Loading departments…' : 'Select a college first', []);
+    branchOptionsRequest++;
+    branchSelect.disabled = true;
+    setSelectOptions(branchSelect, 'Select department first', []);
+    root.querySelector('#register-submit').disabled = true;
+    loadRegistrationOptions(campusSelect.value).then(() => {
+      loadRegistrationClasses();
+      loadRegistrationBranches();
+    });
   };
   semesterSelect.onchange = loadRegistrationClasses;
   root.querySelector('#register-resend').onclick = async event => {
@@ -319,10 +373,33 @@ export function render(root) {
   const staffRegistrationError = root.querySelector('#hod-register-error');
   const staffRegistrationEmail = root.querySelector('#hod-email');
   const staffSubmit = root.querySelector('#hod-register-submit');
+  const staffDepartmentSelect = root.querySelector('#hod-department');
+  const staffCampusSelect = root.querySelector('#hod-campus');
+  let staffDepartmentRequest = 0;
+  const loadStaffDepartments = async () => {
+    const requestId = ++staffDepartmentRequest;
+    staffDepartmentSelect.disabled = true;
+    setSelectOptions(staffDepartmentSelect, staffCampusSelect.value ? 'Loading departments…' : 'Select a college first', []);
+    if (!staffCampusSelect.value) return;
+    try {
+      const options = await api(`/auth/register/options?campus=${encodeURIComponent(staffCampusSelect.value)}`);
+      if (requestId !== staffDepartmentRequest) return;
+      setSelectOptions(staffDepartmentSelect, options.departments.length ? 'Select department' : 'No departments uploaded for this college', options.departments.map(item => ({ value: item._id, label: item.name })));
+      staffDepartmentSelect.disabled = !options.departments.length;
+    } catch (error) {
+      if (requestId !== staffDepartmentRequest) return;
+      setSelectOptions(staffDepartmentSelect, 'Could not load departments', []);
+      staffRegistrationError.textContent = `Could not load departments: ${error.message}`;
+      staffRegistrationError.hidden = false;
+    }
+  };
   const resetStaffRegistration = () => {
+    staffDepartmentRequest++;
     staffRegistrationPending = false;
     root.querySelector('#hod-register-form').reset();
     staffRegisterFields.querySelectorAll('input, select').forEach(field => { field.disabled = false; });
+    staffDepartmentSelect.disabled = true;
+    setSelectOptions(staffDepartmentSelect, 'Select a college first', []);
     staffRegisterFields.hidden = false;
     staffOtp.required = false;
     staffOtpStep.hidden = true;
@@ -330,6 +407,7 @@ export function render(root) {
     root.querySelector('#hod-register-error').hidden = true;
     staffSubmit.textContent = `Create ${selectedRole === 'hod' ? 'HOD' : 'Faculty'} account`;
   };
+  staffCampusSelect.onchange = loadStaffDepartments;
   root.querySelector('#hod-register-close').onclick = () => hodRegisterDialog.close();
   hodRegisterDialog.onclick = event => { if (event.target === hodRegisterDialog) hodRegisterDialog.close(); };
   root.querySelector('#staff-register-start-over').onclick = resetStaffRegistration;

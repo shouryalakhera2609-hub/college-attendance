@@ -6,7 +6,7 @@ exports.averageAttendance = ({ presentTotal, studentTotal, totalDays }) => {
     percentage: Math.round(presentTotal / studentTotal * 1000) / 10
   };
 };
-exports.averageRecentAttendance = (histories, legacyRosterSize, limit = 5) => {
+exports.averageRecentAttendance = (histories, legacyRosterSize, limit = 3) => {
   const recent = [...histories]
     .sort((a, b) => String(b.date).localeCompare(String(a.date))
       || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -22,7 +22,12 @@ exports.averageRecentAttendance = (histories, legacyRosterSize, limit = 5) => {
     totalDays: recent.length
   });
 };
-exports.averageAttendanceBySection = (histories, roster, limit = 5) => {
+exports.averageOfSubjectPercentages = percentages => {
+  const values = percentages.filter(value => Number.isFinite(value));
+  if (!values.length) return null;
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length * 10) / 10;
+};
+exports.averageAttendanceBySection = (histories, roster, limit = 3) => {
   const recent = [...histories]
     .sort((a, b) => String(b.date).localeCompare(String(a.date))
       || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

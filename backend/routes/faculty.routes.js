@@ -3,7 +3,8 @@ const { authenticate } = require('../middleware/authenticate'), authorize = requ
 const { uploadedSubjectsFromFiles } = require('../utils/uploadedSubjects');
 const { backfillHodFileCampuses } = require('../utils/hodFileCampus');
 const { averageAttendance, averageRecentAttendance, averageAttendanceBySection } = require('../utils/facultyAttendance');
-r.use(authenticate, authorize('faculty'));
+const releaseInactiveFacultySubjects = require('../utils/releaseInactiveFacultySubjects');
+r.use(authenticate, authorize('faculty', 'hod'));
 const asg = req => FA.find({ faculty: req.user._id }).populate('subject', 'code name').populate('section', 'name');
 const catalogIdFor = (campus, subjectId) => `${campus}:${subjectId}`;
 const parseCatalogId = catalogId => {
@@ -43,7 +44,7 @@ async function subjectsForCampus(campus) {
   await backfillHodFileCampuses();
   const [departments, files] = await Promise.all([
     Section.distinct('department', { campus }),
-    HodFileUpload.find({ campus }).select('fileName content department').populate('department', 'name').sort('-createdAt').limit(100).lean()
+    HodFileUpload.find({ campus, kind: { $ne: 'student-list' } }).select('fileName content department').populate('department', 'name').sort('-createdAt').limit(100).lean()
   ]);
   const databaseSubjects = departments.length ? await Subject.find({ department: { $in: departments } })
     .select('code name department semester')
@@ -78,11 +79,20 @@ async function subjectsForCampus(campus) {
   }
   return [...catalog.values()].sort((a, b) => a.code.localeCompare(b.code));
 }
+async function availableUploadedSubjectCatalogIds(campuses) {
+  const catalogs = await Promise.all([...new Set(campuses.filter(Boolean))].map(subjectsForCampus));
+  return new Set(catalogs.flat()
+    .filter(subject => parseCatalogId(subject.id)?.source.startsWith('upload:'))
+    .map(subject => subject.id));
+}
 async function facultySubjectOwners(campus, excludeFacultyId) {
   if (!campus) return new Map();
-  const faculty = await U.find({ role: 'faculty', campus: facultyCampusScope(campus), active: true })
+  const [faculty, availableUploadedIds] = await Promise.all([
+    U.find({ role: { $in: ['faculty', 'hod'] }, campus: facultyCampusScope(campus), active: true })
     .select('name phone campus savedSubjects savedSubjectCampuses savedUploadedSubjects')
-    .lean();
+    .lean(),
+    availableUploadedSubjectCatalogIds([campus])
+  ]);
   const owners = new Map();
   const addOwner = (catalogId, member) => {
     if (!owners.has(catalogId)) owners.set(catalogId, []);
@@ -97,7 +107,8 @@ async function facultySubjectOwners(campus, excludeFacultyId) {
       const subjectCampus = subject.campus || member.campus;
       const parsed = parseCatalogId(subject.catalogId);
       if (subjectCampus === campus) {
-        addOwner(parsed?.campus === campus ? subject.catalogId : catalogIdFor(campus, subject.catalogId), member);
+        const catalogId = parsed?.campus === campus ? subject.catalogId : catalogIdFor(campus, subject.catalogId);
+        if (availableUploadedIds.has(catalogId)) addOwner(catalogId, member);
       }
     }
   }
@@ -105,11 +116,11 @@ async function facultySubjectOwners(campus, excludeFacultyId) {
 }
 async function facultyIdsForCampus(campus) {
   if (!campus) return [];
-  return U.find({ role: 'faculty', campus: facultyCampusScope(campus) }).distinct('_id');
+  return U.find({ role: { $in: ['faculty', 'hod'] }, campus: facultyCampusScope(campus) }).distinct('_id');
 }
 async function facultyIdsForExactCampus(campus) {
   if (!campus) return [];
-  return U.find({ role: 'faculty', campus }).distinct('_id');
+  return U.find({ role: { $in: ['faculty', 'hod'] }, campus }).distinct('_id');
 }
 async function subjectHistoryFilter(saved) {
   const campus = saved.subject.campus || saved.faculty.campus;
@@ -145,6 +156,10 @@ async function savedSubjectForFaculty(facultyId, catalogId) {
       };
     })
   ].find(item => item.catalogId === catalogId && (!mapping || mapping.campus === item.campus));
+  if (subject && parseCatalogId(subject.catalogId)?.source.startsWith('upload:')) {
+    const availableUploadedIds = await availableUploadedSubjectCatalogIds([subject.campus]);
+    if (!availableUploadedIds.has(subject.catalogId)) return null;
+  }
   return subject ? { faculty, subject } : null;
 }
 async function studentsForSavedSubject(faculty, subject) {
@@ -154,7 +169,7 @@ async function studentsForSavedSubject(faculty, subject) {
   const campuses = groupedByAttendanceSection ? ['BIRT', 'BIRTS'] : [campus];
   await backfillHodFileCampuses();
   const [filesByCampus, students] = await Promise.all([
-    Promise.all(campuses.map(campusName => HodFileUpload.find({ campus: campusName })
+    Promise.all(campuses.map(campusName => HodFileUpload.find({ campus: campusName, kind: { $ne: 'student-list' } })
       .select('fileName content department campus')
       .populate('department', 'name')
       .sort('-createdAt')
@@ -399,6 +414,33 @@ r.put('/my-subjects', validate(z.object({
     }));
   user.savedUploadedSubjects = [...retainedUploaded, ...selectedUploaded];
   await user.save();
+  const newlyClaimed = selected
+    .filter(subject => !currentSubjectIds.has(subject.id))
+    .map(subject => subject.id);
+  if (newlyClaimed.length) {
+    const inactiveFaculty = await U.find({
+      role: { $in: ['faculty', 'hod'] },
+      campus: facultyCampusScope(campus),
+      active: false,
+      _id: { $ne: user._id }
+    }).select('campus savedSubjects savedSubjectCampuses savedUploadedSubjects').lean();
+    const updates = inactiveFaculty.flatMap(member => {
+      const released = releaseInactiveFacultySubjects(member, campus, newlyClaimed);
+      return released.changed ? [{
+        updateOne: {
+          filter: { _id: member._id, active: false },
+          update: {
+            $set: {
+              savedSubjects: released.savedSubjects,
+              savedSubjectCampuses: released.savedSubjectCampuses,
+              savedUploadedSubjects: released.savedUploadedSubjects
+            }
+          }
+        }
+      }] : [];
+    });
+    if (updates.length) await U.bulkWrite(updates);
+  }
   await user.populate({ path: 'savedSubjects', select: 'code name department semester', populate: [{ path: 'department', select: 'name' }, { path: 'semester', select: 'number' }] });
   const savedSubjects = [
     ...savedDatabaseSubjectCatalog(user, user.savedSubjects),
@@ -467,13 +509,13 @@ r.delete('/reset-data', validate(z.object({
       const historyConditions = [{ faculty: user._id }];
       for (const campus of new Set(savedCatalogs.map(subject => subject.campus).filter(Boolean))) {
         const subjects = savedCatalogs.filter(subject => subject.campus === campus);
-        const facultyIds = await U.distinct('_id', { role: 'faculty', campus: facultyCampusScope(campus) }).session(session);
+        const facultyIds = await U.distinct('_id', { role: { $in: ['faculty', 'hod'] }, campus: facultyCampusScope(campus) }).session(session);
         historyConditions.push({ faculty: { $in: facultyIds }, catalogId: { $in: subjects.map(subject => subject.catalogId) } });
         const legacyIds = [...new Set(subjects
           .filter(subject => campus === user.campus && subject.legacyCatalogId)
           .map(subject => subject.legacyCatalogId))];
         if (legacyIds.length) {
-          const exactCampusFacultyIds = await U.distinct('_id', { role: 'faculty', campus }).session(session);
+          const exactCampusFacultyIds = await U.distinct('_id', { role: { $in: ['faculty', 'hod'] }, campus }).session(session);
           historyConditions.push({ faculty: { $in: exactCampusFacultyIds }, catalogId: { $in: legacyIds } });
         }
       }
@@ -548,6 +590,10 @@ r.get('/dashboard', ah(async (req, res) => {
   ]) : [];
   const sessionCountsById = new Map(sessionCounts.map(count => [String(count._id), count]));
   const user = await U.findById(req.user._id).populate({ path: 'savedSubjects', select: 'code name department semester', populate: [{ path: 'department', select: 'name' }, { path: 'semester', select: 'number' }] }).lean();
+  const uploadedCatalogIds = await availableUploadedSubjectCatalogIds([
+    user?.campus,
+    ...(user?.savedUploadedSubjects || []).map(subject => subject.campus || user?.campus)
+  ]);
   const savedSubjects = [
     ...savedDatabaseSubjectCatalog(user, user?.savedSubjects || []),
     ...(user?.savedUploadedSubjects || []).map(subject => {
@@ -559,8 +605,35 @@ r.get('/dashboard', ah(async (req, res) => {
         catalogId: parsed?.campus === campus ? subject.catalogId : catalogIdFor(campus, subject.catalogId),
         legacyCatalogId: parsed?.source || subject.catalogId
       };
-    })
+    }).filter(subject => uploadedCatalogIds.has(subject.catalogId))
   ];
+  const savedCampuses = [...new Set(savedSubjects.map(subject => subject.campus).filter(Boolean))];
+  const savedFiles = savedCampuses.length
+    ? await HodFileUpload.find({ campus: { $in: savedCampuses }, kind: { $ne: 'student-list' } })
+      .select('fileName content campus')
+      .sort('-createdAt')
+      .limit(100)
+      .lean()
+    : [];
+  const savedCodes = [...new Set(savedSubjects.map(subject => String(subject.code || '').trim().toUpperCase()).filter(Boolean))];
+  const databaseSubjectsByCode = savedCodes.length
+    ? await Subject.find({ code: { $in: savedCodes } }).select('code name department semester').lean()
+    : [];
+  const uploadedNamesByCampusAndCode = new Map();
+  for (const campus of savedCampuses) {
+    const uploaded = uploadedSubjectsFromFiles({ files: savedFiles.filter(file => file.campus === campus) });
+    uploaded.forEach(subject => uploadedNamesByCampusAndCode.set(`${campus}:${String(subject.code || '').trim().toUpperCase()}`, subject.name || subject.code));
+  }
+  for (const subject of savedSubjects) {
+    if (!subject.name) {
+      const databaseSubject = databaseSubjectsByCode.find(item => String(item.code).trim().toUpperCase() === String(subject.code || '').trim().toUpperCase());
+      subject.name = databaseSubject?.name || uploadedNamesByCampusAndCode.get(`${subject.campus}:${String(subject.code || '').trim().toUpperCase()}`) || '';
+    }
+    if (!subject.department) {
+      const databaseSubject = databaseSubjectsByCode.find(item => String(item.code).trim().toUpperCase() === String(subject.code || '').trim().toUpperCase());
+      subject.department = databaseSubject?.department?.name || '';
+    }
+  }
   const recentSubjectCatalogIds = [...new Set(recentSubjectHistory.map(history => history.catalogId))];
   const recentSectionsBySubject = new Map(await Promise.all(recentSubjectCatalogIds.map(async catalogId => {
     const subject = savedSubjects.find(item => item.catalogId === catalogId);
@@ -632,7 +705,7 @@ r.get('/dashboard', ah(async (req, res) => {
     subject.totalDays = counts?.totalDays || 0;
     const recentHistory = await FacultySubjectHistory.find(await subjectHistoryFilter({ faculty: user, subject }))
       .sort({ date: -1, createdAt: -1 })
-      .limit(5)
+      .limit(3)
       .select('date createdAt students totalStudents')
       .lean();
     const legacyRosterSize = recentHistory.some(history => history.totalStudents == null)

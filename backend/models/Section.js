@@ -3,6 +3,7 @@ const s = new m.Schema({
   name: { type: String, required: true, trim: true, maxlength: 20 },
   department: R('Department'),
   semester: R('Semester'),
+  branch: { type: String, trim: true, maxlength: 40 },
   campus: { type: String, enum: ['BIRT', 'BIRTS', 'BIST'], index: true }
 }, { timestamps: true });
 s.index({ name: 1, department: 1, semester: 1 });

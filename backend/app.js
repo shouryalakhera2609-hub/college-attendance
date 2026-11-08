@@ -10,7 +10,7 @@ app.use(helmet({
 }));
 const origins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({ origin: (o, cb) => cb(null, !o || origins.includes(o)), credentials: true }));
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '3mb' }));
 app.use(cookieParser());
 app.use(sanitize());
 app.use(hpp());

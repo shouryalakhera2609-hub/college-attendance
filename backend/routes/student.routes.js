@@ -14,7 +14,7 @@ async function attendanceData(user) {
     await backfillHodFileCampuses();
     const [semester, files] = await Promise.all([
       Semester.findById(user.semester).select('number').lean(),
-      HodFileUpload.find({ campus: user.campus })
+      HodFileUpload.find({ campus: user.campus, kind: { $ne: 'student-list' } })
         .select('fileName content')
         .sort('-createdAt')
         .limit(100)

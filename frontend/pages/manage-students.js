@@ -22,6 +22,7 @@ const parseCsv = text => {
 };
 
 export const render = async root => {
+  const registrationDepartments = await api('/admin/registration-departments');
   root.innerHTML = '<div class="student-toolbar"><button class="btn primary" id="upload-csv">Upload Student CSV</button><button class="btn" id="download-template">Download CSV Template</button></div><div id="student-crud"></div>';
   root.querySelector('#download-template').onclick = () => download(new Blob(['name,email,instId,rollNo,department,password\n'], { type: 'text/csv' }), 'student-template.csv');
   root.querySelector('#upload-csv').onclick = () => {
@@ -47,6 +48,6 @@ export const render = async root => {
       } catch (e) { error.textContent = e.message; error.hidden = false; importButton.disabled = false; }
     };
   };
-  const crud = async () => await crudPage(root.querySelector('#student-crud'), { title: 'Student Details', path: 'users', del: 'Deactivate', filter: u => u.role === 'student', fixed: { role: 'student' }, columns: [{ h: 'Roll no.', v: r => r.rollNo || '-' }, { h: 'Name', v: r => r.name }, { h: 'Email', v: r => r.email }, { h: 'Department', v: r => r.department?.name || '-' }, { h: 'Status', v: r => r.active ? 'Active' : 'Inactive' }], fields: [{ k: 'name', label: 'Name', req: 1 }, { k: 'email', label: 'Email', type: 'email', req: 1 }, { k: 'instId', label: 'Institution ID' }, { k: 'rollNo', label: 'Roll no.' }, { k: 'department', label: 'Department', from: 'departments' }, { k: 'password', label: 'Password (min 10)', type: 'password' }] });
+  const crud = async () => await crudPage(root.querySelector('#student-crud'), { title: 'Student Details', path: 'users', del: 'Deactivate', filter: u => u.role === 'student', fixed: { role: 'student' }, lookups: { department: registrationDepartments }, columns: [{ h: 'Roll no.', v: r => r.rollNo || '-' }, { h: 'Name', v: r => r.name }, { h: 'Email', v: r => r.email }, { h: 'Department', v: r => r.department?.name || '-' }, { h: 'Status', v: r => r.active ? 'Active' : 'Inactive' }], fields: [{ k: 'name', label: 'Name', req: 1 }, { k: 'email', label: 'Email', type: 'email', req: 1 }, { k: 'instId', label: 'Institution ID' }, { k: 'rollNo', label: 'Roll no.' }, { k: 'department', label: 'Department', from: 'departments' }, { k: 'password', label: 'Password (min 10)', type: 'password' }] });
   await crud();
 };

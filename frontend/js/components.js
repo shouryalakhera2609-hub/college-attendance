@@ -24,7 +24,7 @@ export const download = (blob, name) => { const a = document.createElement('a');
 const label = o => [o.code, o.name].filter(Boolean).join(' · ') || o._id;
 // Generic admin CRUD page. All writes are re-validated and authorised by the backend.
 export async function crudPage(root, c) {
-  const lk = {}; await Promise.all(c.fields.filter(f => f.from).map(async f => { lk[f.k] = (await api('/admin/' + f.from)).filter(f.pick || (() => true)); }));
+  const lk = { ...(c.lookups || {}) }; await Promise.all(c.fields.filter(f => f.from && !lk[f.k]).map(async f => { lk[f.k] = (await api('/admin/' + f.from)).filter(f.pick || (() => true)); }));
   const val = (r, f) => r ? (r[f.k]?._id || r[f.k] || '') : '';
   const draw = async () => {
     const rows = (await api('/admin/' + c.path)).filter(c.filter || (() => true));

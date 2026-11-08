@@ -1,8 +1,8 @@
 const jwt = require('jsonwebtoken'), crypto = require('crypto'), User = require('../models/User');
-const COOKIE = 'ca_token', CSRF = 'ca_csrf', TTL = 2 * 3600 * 1000;
-const opts = () => ({ secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/' });
+const COOKIE = 'ca_token', CSRF = 'ca_csrf', TTL = 365 * 24 * 60 * 60 * 1000;
+const opts = () => ({ secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/' });
 exports.setSession = (res, u) => {
-  const t = jwt.sign({ sub: u.id, tv: u.tokenVersion }, process.env.JWT_SECRET, { expiresIn: '2h', algorithm: 'HS256' });
+  const t = jwt.sign({ sub: u.id, tv: u.tokenVersion }, process.env.JWT_SECRET, { expiresIn: '365d', algorithm: 'HS256' });
   res.cookie(COOKIE, t, { ...opts(), httpOnly: true, maxAge: TTL });
   res.cookie(CSRF, crypto.randomBytes(24).toString('hex'), { ...opts(), httpOnly: false, maxAge: TTL });
 };

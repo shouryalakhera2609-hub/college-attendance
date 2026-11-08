@@ -27,7 +27,8 @@ const s = new m.Schema({
   savedUploadedSubjects: [savedUploadedSubjectSchema],
   phone: { type: String, trim: true, maxlength: 20 },
   rollNo: { type: String, trim: true }, active: { type: Boolean, default: true },
+  deactivationNotice: { type: String, trim: true, maxlength: 300 },
   failedLogins: { type: Number, default: 0 }, lockUntil: Date, tokenVersion: { type: Number, default: 0 }
-}, { timestamps: true, toJSON: { transform: (d, r) => { delete r.passwordHash; delete r.failedLogins; delete r.lockUntil; delete r.tokenVersion; delete r.__v; return r; } } });
+}, { timestamps: true, toJSON: { transform: (d, r) => { delete r.passwordHash; delete r.failedLogins; delete r.lockUntil; delete r.tokenVersion; delete r.deactivationNotice; delete r.__v; return r; } } });
 s.methods.toSafe = function () { return { id: this.id, name: this.name, email: this.email, instId: this.instId, role: this.role, campus: this.campus, attendanceSection: this.attendanceSection, branch: this.branch, department: this.department, phone: this.phone, rollNo: this.rollNo }; };
 module.exports = m.model('User', s);

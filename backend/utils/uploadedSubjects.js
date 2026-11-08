@@ -32,6 +32,7 @@ const branchMatches = (rowBranch, branch) => {
     studentBranchTokens.every((token, offset) => rowTokens[index + offset] === token)
   );
 };
+exports.branchMatches = branchMatches;
 
 exports.uploadedSubjectsFromFiles = ({ files, branch, semester } = {}) => {
   const subjects = new Map();
@@ -67,12 +68,19 @@ exports.uploadedSubjectsFromFiles = ({ files, branch, semester } = {}) => {
       const rowSemester = semesterNumber(row[semesterIndex]);
       if (!code || (semester != null && rowSemester !== semester) || (branch && branchIndex >= 0 && !branchMatches(rowBranch, branch))) continue;
       const key = normalize(code);
-      if (!subjects.has(key)) subjects.set(key, {
-        code,
-        name: nameIndex < 0 ? '' : String(row[nameIndex] ?? '').trim(),
-        ...(file.department?.name ? { department: file.department.name } : {}),
-        semester: rowSemester
-      });
+      const name = nameIndex < 0 ? '' : String(row[nameIndex] ?? '').trim();
+      if (!subjects.has(key)) {
+        subjects.set(key, {
+          code,
+          name,
+          ...(file.department?.name ? { department: file.department.name } : {}),
+          semester: rowSemester
+        });
+      } else {
+        const subject = subjects.get(key);
+        if (!subject.name && name) subject.name = name;
+        if (!subject.department && file.department?.name) subject.department = file.department.name;
+      }
     }
   }
   return [...subjects.values()].sort((a, b) => a.code.localeCompare(b.code));

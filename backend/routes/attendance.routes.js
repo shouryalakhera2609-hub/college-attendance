@@ -2,7 +2,7 @@ const r = require('express').Router(), { z } = require('zod'), FA = require('../
 const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit, dateIsFuture, sortStudentsByRollNo } = require('../utils/helpers');
 r.use(authenticate);
 const create = z.object({ subject: zid, section: zid, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), timezoneOffsetMinutes: z.number().int().min(-840).max(840), period: z.number().int().min(1).max(12), term: z.string().trim().min(3).max(20) }).strict();
-r.post('/sessions', authorize('faculty'), validate(create), ah(async (req, res) => {
+r.post('/sessions', authorize('faculty', 'hod'), validate(create), ah(async (req, res) => {
   const b = req.body, a = await FA.findOne({ faculty: req.user._id, subject: b.subject, section: b.section, term: b.term }).populate('subject', 'department semester');
   if (!a) throw fail(403, 'You are not assigned to this subject and section');
   const date = new Date(b.date + 'T00:00:00Z');
@@ -15,7 +15,7 @@ r.post('/sessions', authorize('faculty'), validate(create), ah(async (req, res) 
   res.status(201).json({ success: true, data: { session: s, students: sortStudentsByRollNo(en.map(e => e.student).filter(Boolean)) } });
 }));
 const rec = z.object({ records: z.array(z.object({ student: zid, status: z.enum(['present', 'absent', 'excused']) }).strict()).min(1).max(500) }).strict();
-r.post('/sessions/:id/records', authorize('faculty'), validate(rec), ah(async (req, res) => {
+r.post('/sessions/:id/records', authorize('faculty', 'hod'), validate(rec), ah(async (req, res) => {
   // Atomic claim: only an open session owned by this faculty can be submitted, exactly once.
   const s = await S.findOneAndUpdate({ _id: oid(req.params.id), faculty: req.user._id, status: 'open' }, { status: 'submitted', submittedAt: new Date() });
   if (!s) throw fail(409, 'Session not found, not yours, or already submitted');

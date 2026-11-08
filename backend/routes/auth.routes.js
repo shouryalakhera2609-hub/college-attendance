@@ -8,6 +8,9 @@ const Section = require('../models/Section');
 const Enrollment = require('../models/Enrollment');
 const { createOtp, hashOtp, matchesOtp, expiryDate } = require('../utils/registrationOtp');
 const { sendRegistrationOtp } = require('../services/email.service');
+const { branchMatches } = require('../utils/uploadedSubjects');
+const uniqueUploadedDepartments = require('../utils/registrationDepartments');
+const uniqueUploadedBranches = require('../utils/registrationBranches');
 const DUMMY = bcrypt.hashSync('timing-equalizer', 12);
 const limiter = rateLimit({ windowMs: 15 * 60000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Too many attempts. Try again later.' } });
 const registrationLimiter = rateLimit({ windowMs: 15 * 60000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Too many registration attempts. Try again later.' } });
@@ -25,7 +28,7 @@ const registrationSchema = z.object({
   phone: z.string().trim().min(7).max(20),
   instId: z.string().trim().min(1).max(30).optional(),
   rollNo: z.string().trim().min(1).max(30),
-  branch: z.enum(['Data Science', 'CSE', 'AIML', 'Cyber Security', 'ME', 'IT', 'MCA', 'MBA', 'BBA', 'Other']),
+  branch: z.string().trim().min(1).max(40),
   campus: z.enum(['BIRT', 'BIRTS', 'BIST']),
   attendanceSection: z.enum(['Birt', 'Birts']).optional(),
   department: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid department'),
@@ -56,44 +59,45 @@ const staffRegistrationSchema = z.object({
 const RESEND_DELAY_MS = 60_000;
 
 r.get('/register/options', ah(async (req, res) => {
-  const departmentDefinitions = [
-    { name: 'CSE', code: 'CSE' },
-    { name: 'EC', code: 'EC' },
-    { name: 'EX', code: 'EX' },
-    { name: 'ME', code: 'ME' },
-    { name: 'IT', code: 'IT' },
-    { name: 'MCA', code: 'MCA' },
-    { name: 'MBA', code: 'MBA' },
-    { name: 'BBA', code: 'BBA' }
-  ];
-  await Promise.all(departmentDefinitions.map(department =>
-    Department.findOneAndUpdate(
-      { name: department.name },
-      { $set: { name: department.name, code: department.code } },
-      { upsert: true, new: true, runValidators: true }
-    )
-  ));
-  const [departments, semesters] = await Promise.all([
-    Department.find().select('name code').sort('name').lean(),
+  const campus = req.query.campus;
+  if (campus && !['BIRT', 'BIRTS', 'BIST'].includes(campus)) throw fail(400, 'Select a valid college.');
+  const [sections, semesters] = await Promise.all([
+    campus
+      ? Section.find({ campus }).select('department').populate('department', 'name code').lean()
+      : Promise.resolve([]),
     Semester.find().select('name number').sort('number').lean()
   ]);
+  const departments = uniqueUploadedDepartments(sections);
   res.json({ success: true, data: { departments, semesters } });
+}));
+r.get('/register/branches', ah(async (req, res) => {
+  const query = z.object({
+    campus: z.enum(['BIRT', 'BIRTS', 'BIST']),
+    department: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid department')
+  }).safeParse(req.query);
+  if (!query.success) throw fail(400, 'Select a valid college and department.');
+  const sections = await Section.find({ campus: query.data.campus, department: query.data.department })
+    .select('branch')
+    .lean();
+  res.json({ success: true, data: uniqueUploadedBranches(sections) });
 }));
 r.get('/register/classes', ah(async (req, res) => {
   const query = z.object({
     campus: z.enum(['BIRT', 'BIRTS', 'BIST']),
     department: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid department'),
-    semester: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid semester')
+    semester: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid semester'),
+    branch: z.string().trim().min(1).max(40)
   }).safeParse(req.query);
-  if (!query.success) throw fail(400, 'Select a valid college, department, and semester.');
-  const classes = await Section.find({
+  if (!query.success) throw fail(400, 'Select a valid college, department, semester, and branch.');
+  const sections = await Section.find({
     campus: query.data.campus,
     department: query.data.department,
     semester: query.data.semester
   })
-    .select('name')
+    .select('name branch')
     .sort('name')
     .lean();
+  const classes = sections.filter(section => !section.branch || branchMatches(section.branch, query.data.branch));
   res.json({ success: true, data: classes });
 }));
 
@@ -117,8 +121,13 @@ async function deliverRegistrationOtp(challenge) {
 r.post('/register/request-otp', registrationLimiter, validate(registrationSchema), ah(async (req, res) => {
   const { name, email, password, phone, instId, rollNo, branch, campus, attendanceSection, department, semester, section } = req.body;
   if (await User.exists({ $or: [{ email }, ...(instId ? [{ instId }] : [])] })) throw fail(409, 'An account with this email or institution ID already exists.');
-  const selectedClass = await Section.findOne({ _id: section, campus, department, semester }).select('_id').lean();
-  if (!selectedClass) throw fail(400, 'Choose a class belonging to the selected college and department.');
+  if (!await Section.exists({ campus, department, branch: { $regex: `^${branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } })) {
+    throw fail(400, 'Select a branch uploaded for the selected college and department.');
+  }
+  const selectedClass = await Section.findOne({ _id: section, campus, department, semester }).select('_id branch').lean();
+  if (!selectedClass || (selectedClass.branch && !branchMatches(selectedClass.branch, branch))) {
+    throw fail(400, 'Choose a class matching the selected college, department, semester, and branch.');
+  }
   const currentDate = new Date();
   const term = `${currentDate.getFullYear()}-${currentDate.getMonth() >= 6 ? 'ODD' : 'EVEN'}`;
   let challenge = await RegistrationOtp.findOne({ email });
@@ -210,8 +219,9 @@ const requestStaffRegistrationOtp = role => ah(async (req, res) => {
   if (await User.exists({ $or: [{ email }, { instId }] })) {
     throw fail(409, 'An account with this email or employee ID already exists.');
   }
-  if (!await Department.exists({ _id: department })) {
-    throw fail(400, 'Select a valid department.');
+  if (!await Department.exists({ _id: department }) ||
+      !await Section.exists({ campus, department })) {
+    throw fail(400, 'Select a department uploaded for the selected college.');
   }
   const existingChallenge = await RegistrationOtp.findOne({ email });
   if (existingChallenge && Date.now() - existingChallenge.lastSentAt.getTime() < RESEND_DELAY_MS) {
@@ -260,8 +270,12 @@ r.post('/login', limiter, validate(schema), ah(async (req, res) => {
   }
   const ok = await bcrypt.compare(req.body.password, u ? u.passwordHash : DUMMY); // constant-time-ish: always hash
   if (u && u.lockUntil && u.lockUntil > new Date()) throw fail(423, 'Account temporarily locked. Try again in 15 minutes.');
-  if (!u || !ok || !u.active) {
+  if (!u || !ok) {
     if (u) { u.failedLogins += 1; if (u.failedLogins >= 5) { u.lockUntil = new Date(Date.now() + 15 * 60000); u.failedLogins = 0; } await u.save(); }
+    throw fail(401, 'Invalid credentials');
+  }
+  if (!u.active) {
+    if (u.deactivationNotice) throw fail(403, u.deactivationNotice);
     throw fail(401, 'Invalid credentials');
   }
   if (u.role === 'admin' && !u.campus) u.campus = req.body.campus;
