@@ -1,5 +1,7 @@
 const r = require('express').Router(), bcrypt = require('bcrypt'), { z } = require('zod'), User = require('../models/User');
 const { authenticate, clearSession } = require('../middleware/authenticate'), validate = require('../middleware/validate'), { ah, fail, audit } = require('../utils/helpers');
+const { passwordSchema } = require('../utils/password');
+const { phoneNumberSchema } = require('../utils/phoneNumberSchema');
 const Department = require('../models/Department');
 const Section = require('../models/Section');
 const Semester = require('../models/Semester');
@@ -25,7 +27,7 @@ const editableProfile = z.object({
   name: z.string().trim().min(1).max(100),
   instId: z.union([z.string().trim().min(1).max(30), z.literal('')]).optional(),
   rollNo: z.string().trim().min(1).max(30).optional(),
-  phone: z.union([z.string().trim().max(20), z.literal('')]).optional(),
+  phone: z.union([phoneNumberSchema, z.literal('')]).optional(),
   campus: z.enum(['BIRT', 'BIRTS', 'BIST']),
   department: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid department'),
   branch: z.string().trim().min(1).max(40).optional(),
@@ -47,7 +49,7 @@ r.patch('/', validate(editableProfile), ah(async (req, res) => {
   if (student && !studentProfileFields.safeParse(data).success) {
     throw fail(400, 'Provide a roll number, branch, semester, and class.');
   }
-  if (!student && (!data.instId || !data.instId.trim())) throw fail(400, 'Institution ID is required.');
+  if (!student && (!data.instId || !data.instId.trim())) throw fail(400, 'Employee ID is required.');
   if (student && ['BIRT', 'BIRTS'].includes(data.campus) && !data.attendanceSection) {
     throw fail(400, 'Select an attendance section.');
   }
@@ -136,7 +138,7 @@ r.patch('/', validate(editableProfile), ah(async (req, res) => {
     section: enrollment?.section || null
   } });
 }));
-const pw = z.object({ current: z.string().min(1).max(128), next: z.string().min(10).max(128).regex(/[a-z]/).regex(/[A-Z]/).regex(/\d/) }).strict();
+const pw = z.object({ current: z.string().min(1).max(128), next: passwordSchema }).strict();
 r.patch('/password', validate(pw), ah(async (req, res) => {
   const u = await User.findById(req.user._id).select('+passwordHash');
   if (!await bcrypt.compare(req.body.current, u.passwordHash)) throw fail(400, 'Current password is incorrect');

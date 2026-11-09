@@ -29,3 +29,10 @@ exports.sendRegistrationOtp = (email, name, otp, expiryMinutes) => getTransporte
   subject: 'Verify your CampusAttend student account',
   text: `Hello ${name},\n\nYour CampusAttend verification code is ${otp}. It expires in ${expiryMinutes} minutes. If you did not request this, you can ignore this email.`
 });
+
+exports.sendPasswordResetOtp = (email, name, otp, expiryMinutes) => getTransporter().sendMail({
+  from: process.env.EMAIL_FROM,
+  to: email,
+  subject: 'Reset your CampusAttend password',
+  text: `Hello ${name},\n\nYour CampusAttend password reset code is ${otp}. It expires in ${expiryMinutes} minutes. If you did not request this, you can ignore this email.`
+});

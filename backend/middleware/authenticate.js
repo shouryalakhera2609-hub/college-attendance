@@ -9,7 +9,7 @@ exports.setSession = (res, u) => {
 exports.clearSession = res => { res.clearCookie(COOKIE, opts()); res.clearCookie(CSRF, opts()); };
 // Double-submit CSRF token for every state-changing request (login excluded: no session yet)
 exports.csrf = (req, res, next) => {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || ['/auth/login', '/auth/register/request-otp', '/auth/register/resend-otp', '/auth/register/verify-otp', '/auth/register/hod/request-otp', '/auth/register/faculty/request-otp'].includes(req.path)) return next();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || ['/auth/login', '/auth/register/request-otp', '/auth/register/resend-otp', '/auth/register/verify-otp', '/auth/register/hod/request-otp', '/auth/register/faculty/request-otp', '/auth/password/request-reset', '/auth/password/reset'].includes(req.path)) return next();
   const c = req.cookies[CSRF], h = req.get('x-csrf-token');
   if (!c || !h || c.length !== h.length || !crypto.timingSafeEqual(Buffer.from(c), Buffer.from(h))) return res.status(403).json({ success: false, message: 'Invalid CSRF token' });
   next();

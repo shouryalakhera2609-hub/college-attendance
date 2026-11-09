@@ -9,6 +9,7 @@ const R = [['/login', 'login', null, 'Sign in'],
   ['/hod/dashboard', 'hod-dashboard', ['hod'], 'Department Dashboard'], ['/hod/students', 'hod-students', ['hod'], 'Student Details'], ['/hod/accounts', 'hod-accounts', ['hod'], 'Accounts'], ['/admin/dashboard', 'admin-dashboard', A, 'System Overview'],
   ['/admin/students', 'manage-students', A, 'Manage Students'], ['/admin/faculty', 'manage-faculty', A, 'Manage Faculty & Staff'], ['/admin/subjects', 'manage-subjects', A, 'Manage Subjects'], ['/admin/departments', 'manage-departments', A, 'Manage Departments'],
   ['/admin/classes', 'manage-classes', A, 'Manage Classes'],
+  ['/admin/hods', 'admin-hods', A, 'Active HODs'],
   ['/admin/semesters', 'manage-semesters', A, 'Manage Semesters'], ['/admin/sections', 'manage-sections', A, 'Manage Sections'], ['/admin/assignments', 'manage-assignments', A, 'Faculty Assignments'], ['/admin/enrollments', 'manage-enrollments', A, 'Enrollments'],
   ['/corrections', 'correction-requests', ['student', 'faculty', 'hod'], 'Correction Requests'], ['/reports', 'reports', ['faculty', 'hod', 'admin'], 'Reports & Analytics'], ['/profile', 'profile', null, 'Profile'], ['/settings', 'settings', null, 'Settings']];
 export const go = p => { location.hash = '#' + p; };

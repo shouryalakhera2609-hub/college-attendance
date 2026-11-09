@@ -11,10 +11,11 @@ export async function render(root, { user }) {
   const canEdit = ['student', 'faculty', 'hod'].includes(user.role);
 
   const draw = () => {
+    const idLabel = profile.role === 'student' ? 'Institution ID' : 'Employee ID';
     const rows = [
       ['Name', profile.name],
       ['Email', profile.email],
-      ['Institution ID', profile.instId],
+      [idLabel, profile.instId],
       ['Role', profile.role],
       ['College', profile.campus],
       ['Branch', profile.branch],
@@ -40,9 +41,9 @@ export async function render(root, { user }) {
       <div class="page-head"><div><h2>Edit profile</h2><p>Email and password are not editable.</p></div></div>
       <form class="form" id="profile-form" novalidate>
         <label>Full name<input name="name" maxlength="100" required value="${profile.name || ''}"></label>
-        <label>Institution ID<input name="instId" maxlength="30" ${student ? '' : 'required'} value="${profile.instId || ''}"></label>
+        <label>${student ? 'Institution ID' : 'Employee ID'}<input name="instId" maxlength="30" ${student ? '' : 'required'} value="${profile.instId || ''}"></label>
         ${student ? html`<label>Roll number<input name="rollNo" maxlength="30" required value="${profile.rollNo || ''}"></label>` : ''}
-        <label>Phone number<input name="phone" type="tel" maxlength="20" value="${profile.phone || ''}"></label>
+        <label>Phone number (10 digits)<input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" value="${profile.phone || ''}"></label>
         <label>College<select name="campus" id="profile-campus" required><option value="">Select a college</option>${campuses.map(campus => html`<option value="${campus}" ${profile.campus === campus ? 'selected' : ''}>${campus}</option>`)}</select></label>
         <label>Department<select name="department" id="profile-department" required disabled><option value="">Loading departments…</option></select></label>
         ${student ? html`

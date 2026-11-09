@@ -2,6 +2,7 @@ const r = require('express').Router(), bcrypt = require('bcrypt'), crypto = requ
 const User = require('../models/User'), { authenticate, setSession, clearSession } = require('../middleware/authenticate');
 const validate = require('../middleware/validate'), { ah, fail, audit } = require('../utils/helpers');
 const RegistrationOtp = require('../models/RegistrationOtp');
+const PasswordResetOtp = require('../models/PasswordResetOtp');
 const Department = require('../models/Department');
 const Semester = require('../models/Semester');
 const Section = require('../models/Section');
@@ -11,21 +12,25 @@ const { sendRegistrationOtp } = require('../services/email.service');
 const { branchMatches } = require('../utils/uploadedSubjects');
 const uniqueUploadedDepartments = require('../utils/registrationDepartments');
 const uniqueUploadedBranches = require('../utils/registrationBranches');
+const { passwordSchema } = require('../utils/password');
+const { phoneNumberSchema } = require('../utils/phoneNumberSchema');
 const DUMMY = bcrypt.hashSync('timing-equalizer', 12);
 const limiter = rateLimit({ windowMs: 15 * 60000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Too many attempts. Try again later.' } });
 const registrationLimiter = rateLimit({ windowMs: 15 * 60000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Too many registration attempts. Try again later.' } });
 const verificationLimiter = rateLimit({ windowMs: 15 * 60000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Too many verification attempts. Try again later.' } });
+const passwordResetRequestLimiter = rateLimit({ windowMs: 15 * 60000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Too many password reset requests. Try again later.' } });
 const schema = z.object({
   identifier: z.string().trim().min(3).max(100),
   password: z.string().min(1).max(128),
   campus: z.enum(['BIRT', 'BIRTS', 'BIST']).optional()
 }).strict();
 const emailSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254) }).strict();
+const passwordResetRequestSchema = z.object({ identifier: z.string().trim().min(3).max(100) }).strict();
 const registrationSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.string().trim().toLowerCase().email().max(254),
-  password: z.string().min(10).max(128),
-  phone: z.string().trim().min(7).max(20),
+  password: passwordSchema,
+  phone: phoneNumberSchema,
   instId: z.string().trim().min(1).max(30).optional(),
   rollNo: z.string().trim().min(1).max(30),
   branch: z.string().trim().min(1).max(40),
@@ -43,15 +48,24 @@ const registrationSchema = z.object({
   }
 });
 const otpSchema = emailSchema.extend({ otp: z.string().regex(/^\d{6}$/, 'Enter the six-digit verification code') }).strict();
+const passwordResetSchema = z.object({
+  identifier: z.string().trim().min(3).max(100),
+  otp: z.string().regex(/^\d{6}$/, 'Enter the six-digit verification code'),
+  password: passwordSchema,
+  confirmPassword: passwordSchema
+}).strict().refine(data => data.password === data.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword']
+});
 const staffRegistrationSchema = z.object({
   name: z.string().trim().min(1).max(100),
   instId: z.string().trim().min(1).max(30),
   department: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid department'),
   campus: z.enum(['BIRT', 'BIRTS', 'BIST']),
-  phone: z.string().trim().min(7).max(20),
+  phone: phoneNumberSchema,
   email: z.string().trim().toLowerCase().email().max(254),
-  password: z.string().min(6).max(128),
-  confirmPassword: z.string().min(6).max(128)
+  password: passwordSchema,
+  confirmPassword: passwordSchema
 }).strict().refine(data => data.password === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword']
@@ -260,6 +274,88 @@ const requestStaffRegistrationOtp = role => ah(async (req, res) => {
 
 r.post('/register/hod/request-otp', registrationLimiter, validate(staffRegistrationSchema), requestStaffRegistrationOtp('hod'));
 r.post('/register/faculty/request-otp', registrationLimiter, validate(staffRegistrationSchema), requestStaffRegistrationOtp('faculty'));
+
+r.post('/password/request-reset', passwordResetRequestLimiter, validate(passwordResetRequestSchema), ah(async (req, res) => {
+  const identifier = req.body.identifier.toLowerCase();
+  const user = await User.findOne({
+    active: true,
+    $or: [{ email: identifier }, { instId: identifier }]
+  }).select('name email').lean();
+  if (!user) return res.json({
+    success: true,
+    data: { accountExists: false, message: 'Your account has not been created. Please create an account first.' }
+  });
+  const email = user.email;
+  const message = 'A password reset code has been sent to your registered email.';
+
+  let challenge = await PasswordResetOtp.findOne({ email });
+  if (challenge && Date.now() - challenge.lastSentAt.getTime() < RESEND_DELAY_MS) {
+    return res.json({ success: true, data: { accountExists: true, message } });
+  }
+  const otp = createOtp();
+  const now = new Date();
+  challenge = await PasswordResetOtp.findOneAndUpdate(
+    { email },
+    {
+      email,
+      otpHash: hashOtp(email, otp, process.env.JWT_SECRET),
+      expiresAt: expiryDate(),
+      attempts: 0,
+      lastSentAt: now
+    },
+    { upsert: true, new: true, runValidators: true }
+  );
+  try {
+    await sendPasswordResetOtp(email, user.name, otp, Number(process.env.OTP_EXPIRY_MINUTES || 10));
+  } catch (error) {
+    await PasswordResetOtp.deleteOne({ _id: challenge._id });
+    console.error('Password reset OTP email delivery failed:', error.message);
+    throw fail(503, 'Could not send the verification email. Please try again later.');
+  }
+  res.json({ success: true, data: { accountExists: true, message } });
+}));
+
+r.post('/password/reset', verificationLimiter, validate(passwordResetSchema), ah(async (req, res) => {
+  const { identifier, otp, password } = req.body;
+  const user = await User.findOne({
+    active: true,
+    $or: [{ email: identifier.toLowerCase() }, { instId: identifier.toLowerCase() }]
+  }).select('_id email');
+  if (!user) throw fail(400, 'The verification code is invalid or expired. Request a new code.');
+  const email = user.email;
+  const challenge = await PasswordResetOtp.findOne({ email });
+  if (!challenge || challenge.expiresAt <= new Date() || challenge.attempts >= 5) {
+    throw fail(400, 'The verification code is invalid or expired. Request a new code.');
+  }
+  if (!matchesOtp(email, otp, challenge.otpHash, process.env.JWT_SECRET)) {
+    await PasswordResetOtp.updateOne(
+      { _id: challenge._id, attempts: { $lt: 5 } },
+      { $inc: { attempts: 1 } }
+    );
+    throw fail(400, 'The verification code is invalid or expired. Request a new code.');
+  }
+
+  const consumed = await PasswordResetOtp.findOneAndDelete({
+    _id: challenge._id,
+    otpHash: challenge.otpHash,
+    expiresAt: { $gt: new Date() },
+    attempts: { $lt: 5 }
+  });
+  if (!consumed) throw fail(400, 'The verification code is invalid or expired. Request a new code.');
+
+  const updatedUser = await User.findOneAndUpdate(
+    { _id: user._id, active: true },
+    {
+      $set: { passwordHash: await bcrypt.hash(password, 12), failedLogins: 0 },
+      $inc: { tokenVersion: 1 },
+      $unset: { lockUntil: 1 }
+    },
+    { new: true }
+  );
+  if (!updatedUser) throw fail(400, 'The verification code is invalid or expired. Request a new code.');
+  audit(req, 'password.reset', 'User', updatedUser._id);
+  res.json({ success: true, data: { message: 'Password reset. Please sign in with your new password.' } });
+}));
 
 r.post('/login', limiter, validate(schema), ah(async (req, res) => {
   const id = req.body.identifier.toLowerCase();

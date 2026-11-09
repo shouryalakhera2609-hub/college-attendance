@@ -25,11 +25,11 @@ export async function render(root) {
         button.onclick = async () => {
           const member = faculty.find(row => row._id === button.dataset.deleteFaculty);
           if (!member) return;
-          if (!confirm(`Delete ${member.name}'s account permanently? They will have to create a new account.`)) return;
+          if (!confirm(`Delete ${member.name}'s account permanently? They will have to create a new account. Attendance, assignments, and other existing records will be kept.`)) return;
           button.disabled = true;
           try {
             await api(`/hod/faculty/${member._id}`, { method: 'DELETE' });
-            toast('Faculty account deleted');
+            toast('Faculty account deleted. Existing records were kept.');
             await draw();
           } catch (error) {
             toast(error.message, 'error');

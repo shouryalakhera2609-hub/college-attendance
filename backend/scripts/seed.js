@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt'), mongoose = require('mongoose');
 const M = n => require('../models/' + n);
 (async () => {
   if (process.env.NODE_ENV === 'production') { console.error('Refusing to seed in production'); process.exit(1); }
-  const pw = process.env.SEED_PASSWORD; if (!pw || pw.length < 10) { console.error('Set SEED_PASSWORD (min 10 chars) in .env'); process.exit(1); }
+  const pw = process.env.SEED_PASSWORD; if (!pw || pw.length !== 6) { console.error('Set SEED_PASSWORD (exactly 6 characters) in .env'); process.exit(1); }
   await require('../config/db')();
   const hash = await bcrypt.hash(pw, 12), term = '2026-ODD';
   const up = (Model, f, d) => Model.findOneAndUpdate(f, { $setOnInsert: d }, { upsert: true, new: true });

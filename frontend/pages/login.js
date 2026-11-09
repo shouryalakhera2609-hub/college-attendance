@@ -60,10 +60,10 @@ export function render(root) {
             <label for="hod-inst-id">Employee ID</label><input id="hod-inst-id" name="instId" maxlength="30" required>
             <label for="hod-campus">Select college</label><select id="hod-campus" name="campus" required><option value="">Select college</option><option value="BIRT">BIRT</option><option value="BIRTS">BIRTS</option><option value="BIST">BIST</option></select>
             <label for="hod-department">Select department</label><select id="hod-department" name="department" required disabled><option value="">Select a college first</option></select>
-            <label for="hod-phone">Phone number</label><input id="hod-phone" name="phone" type="tel" autocomplete="tel" maxlength="20" required>
+            <label for="hod-phone">Phone number (10 digits)</label><input id="hod-phone" name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" autocomplete="tel" required>
             <label for="hod-email">Gmail address</label><input id="hod-email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="name@gmail.com" required>
-            <label for="hod-password">Create password (min 6 chars)</label><input id="hod-password" name="password" type="password" autocomplete="new-password" minlength="6" maxlength="128" required>
-            <label for="hod-confirm-password">Confirm password</label><input id="hod-confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="6" maxlength="128" required>
+            <label for="hod-password">Create password (exactly 6 characters)</label><input id="hod-password" name="password" type="password" autocomplete="new-password" minlength="6" maxlength="6" required>
+            <label for="hod-confirm-password">Confirm password</label><input id="hod-confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="6" maxlength="6" required>
           </div>
           <div id="staff-register-otp-step" hidden>
             <p id="staff-register-otp-help">Enter the verification code sent to your Gmail address.</p>
@@ -80,8 +80,24 @@ export function render(root) {
     <dialog class="auth-dialog" id="forgot-dialog" aria-labelledby="forgot-title">
       <div class="dialog-form">
         <div class="dialog-heading"><h2 id="forgot-title">Forgot Password?</h2><button type="button" class="dialog-close" id="forgot-close" aria-label="Close">×</button></div>
-        <p>Password reset is not available yet. Please contact your college administrator for help.</p>
-        <button type="button" class="login-submit" id="forgot-done">Close</button>
+        <form id="forgot-form" class="register-form" novalidate>
+          <div id="forgot-account-step">
+            <p>We’ll send a verification code to the registered email for this account.</p>
+            <label for="forgot-account">Account</label><input id="forgot-account" name="identifier" type="text" autocomplete="username" readonly required>
+            <button type="submit" class="login-submit" id="forgot-send-code">Send verification code</button>
+          </div>
+          <div id="forgot-reset-step" hidden>
+            <p id="forgot-reset-help">Enter the code sent to your email and choose a new 6-character password.</p>
+            <label for="forgot-otp">Six-digit verification code</label><input id="forgot-otp" name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+            <button type="button" class="text-link" id="forgot-resend-code">Send another code</button>
+            <label for="forgot-new-password">New password (exactly 6 characters)</label><input id="forgot-new-password" name="password" type="password" autocomplete="new-password" minlength="6" maxlength="6" required>
+            <label for="forgot-confirm-password">Confirm new password</label><input id="forgot-confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="6" maxlength="6" required>
+            <button type="submit" class="login-submit" id="forgot-reset-submit">Reset password</button>
+          </div>
+          <p class="register-status" id="forgot-status" role="status" hidden></p>
+          <div class="login-error" id="forgot-error" role="alert" hidden></div>
+          <button type="button" class="btn" id="forgot-done">Close</button>
+        </form>
       </div>
     </dialog>
     <dialog class="auth-dialog registration-dialog" id="register-dialog" aria-labelledby="register-title">
@@ -93,7 +109,7 @@ export function render(root) {
             <label for="register-name">Full name</label><input id="register-name" name="name" autocomplete="name" maxlength="100" required>
             <label for="register-email">Email address</label><input id="register-email" name="email" type="email" autocomplete="email" maxlength="254" required>
             <label for="register-roll-no">Roll number</label><small class="register-hint">Roll number is required. If you don't have one, type NA.</small><input id="register-roll-no" name="rollNo" maxlength="30" required>
-            <label for="register-phone">Mobile number</label><input id="register-phone" name="phone" type="tel" autocomplete="tel" minlength="7" maxlength="20" required>
+            <label for="register-phone">Mobile number (10 digits)</label><input id="register-phone" name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" autocomplete="tel" required>
             <label for="register-campus">College</label><small class="register-hint">Please select the building where you study.</small><select id="register-campus" name="campus" required><option value="">Select a college</option><option value="BIRT">BIRT</option><option value="BIRTS">BIRTS</option><option value="BIST">BIST</option></select>
             <label for="register-department">Department</label><select id="register-department" name="department" required disabled><option value="">Select a college first</option></select>
             <label for="register-branch">Branch</label><select id="register-branch" name="branch" required disabled><option value="">Select department first</option></select>
@@ -101,7 +117,7 @@ export function render(root) {
             <label for="register-semester">Semester</label><select id="register-semester" name="semester" required disabled><option value="">Loading semesters…</option></select>
             <label for="register-class">Choose class</label><select id="register-class" name="section" required disabled><option value="">Select college, department, semester, and branch first</option></select>
             <small id="register-class-help" class="register-status" hidden></small>
-            <label for="register-password">Password (at least 10 characters)</label><input id="register-password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
+            <label for="register-password">Password (exactly 6 characters)</label><input id="register-password" name="password" type="password" autocomplete="new-password" minlength="6" maxlength="6" required>
           </div>
           <div id="register-otp-step" hidden>
             <label for="register-otp">Six-digit verification code</label><input id="register-otp" name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
@@ -156,10 +172,111 @@ export function render(root) {
   };
 
   const forgotDialog = root.querySelector('#forgot-dialog');
-  root.querySelector('#forgot-link').onclick = () => forgotDialog.showModal();
+  const forgotForm = root.querySelector('#forgot-form');
+  const forgotAccount = root.querySelector('#forgot-account');
+  const forgotAccountStep = root.querySelector('#forgot-account-step');
+  const forgotResetStep = root.querySelector('#forgot-reset-step');
+  const forgotStatus = root.querySelector('#forgot-status');
+  const forgotError = root.querySelector('#forgot-error');
+  const forgotSendCode = root.querySelector('#forgot-send-code');
+  const forgotResetSubmit = root.querySelector('#forgot-reset-submit');
+  let forgotCodeSent = false;
+  let forgotResetComplete = false;
+  const requestPasswordResetCode = async () => {
+    forgotError.hidden = true;
+    forgotStatus.hidden = true;
+    forgotSendCode.disabled = true;
+    try {
+      const result = await api('/auth/password/request-reset', {
+        method: 'POST',
+        body: { identifier: forgotAccount.value.trim() }
+      });
+      forgotStatus.textContent = result.message;
+      forgotStatus.hidden = false;
+      if (!result.accountExists) return;
+      forgotCodeSent = true;
+      forgotAccountStep.hidden = true;
+      forgotResetStep.hidden = false;
+    } catch (error) {
+      forgotError.textContent = error.message;
+      forgotError.hidden = false;
+    } finally {
+      forgotSendCode.disabled = false;
+    }
+  };
+  root.querySelector('#forgot-link').onclick = () => {
+    if (!identifier.value.trim()) {
+      setError('#login-error', 'Enter your email or employee ID first.');
+      identifier.focus();
+      return;
+    }
+    setError('#login-error', '');
+    forgotAccount.value = identifier.value.trim();
+    forgotDialog.showModal();
+  };
   root.querySelector('#forgot-close').onclick = () => forgotDialog.close();
   root.querySelector('#forgot-done').onclick = () => forgotDialog.close();
   forgotDialog.onclick = event => { if (event.target === forgotDialog) forgotDialog.close(); };
+  root.querySelector('#forgot-resend-code').onclick = requestPasswordResetCode;
+  forgotForm.onsubmit = async event => {
+    event.preventDefault();
+    forgotError.hidden = true;
+    forgotStatus.hidden = true;
+    if (!forgotCodeSent) {
+      if (!forgotAccount.value.trim()) {
+        forgotDialog.close();
+        setError('#login-error', 'Enter your email or employee ID first.');
+        identifier.focus();
+        return;
+      }
+      await requestPasswordResetCode();
+      return;
+    }
+    const resetOtp = root.querySelector('#forgot-otp');
+    const newPassword = root.querySelector('#forgot-new-password');
+    const confirmPassword = root.querySelector('#forgot-confirm-password');
+    if (!resetOtp.reportValidity() || !newPassword.reportValidity() || !confirmPassword.reportValidity()) return;
+    if (newPassword.value !== confirmPassword.value) {
+      forgotError.textContent = 'Passwords do not match.';
+      forgotError.hidden = false;
+      confirmPassword.focus();
+      return;
+    }
+    forgotResetSubmit.disabled = true;
+    try {
+      const result = await api('/auth/password/reset', {
+        method: 'POST',
+        body: {
+          identifier: forgotAccount.value.trim(),
+          otp: resetOtp.value,
+          password: newPassword.value,
+          confirmPassword: confirmPassword.value
+        }
+      });
+      forgotResetComplete = true;
+      forgotResetStep.hidden = true;
+      forgotStatus.textContent = result.message;
+      forgotStatus.hidden = false;
+      forgotForm.querySelector('#forgot-done').textContent = 'Back to login';
+    } catch (error) {
+      forgotError.textContent = error.message;
+      forgotError.hidden = false;
+    } finally {
+      forgotResetSubmit.disabled = false;
+    }
+  };
+  forgotDialog.addEventListener('close', () => {
+    forgotForm.reset();
+    forgotAccountStep.hidden = false;
+    forgotResetStep.hidden = true;
+    forgotStatus.hidden = true;
+    forgotError.hidden = true;
+    forgotCodeSent = false;
+    if (forgotResetComplete) {
+      forgotForm.querySelector('#forgot-done').textContent = 'Close';
+      forgotResetComplete = false;
+    }
+  });
   const registerDialog = root.querySelector('#register-dialog');
   const registerForm = root.querySelector('#register-form');
   const registerFields = root.querySelector('#register-fields');

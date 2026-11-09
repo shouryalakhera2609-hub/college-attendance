@@ -5,38 +5,13 @@ const { spreadsheetRows, writeSpreadsheetRows } = require('../utils/excel');
 const spreadsheetDiff = require('../utils/spreadsheetDiff');
 const HodFileUpload = require('../models/HodFileUpload');
 const { backfillHodFileCampuses } = require('../utils/hodFileCampus');
-const { inferDepartmentCampus } = require('../utils/campusForDepartment');
 const { uploadedSubjectsFromFiles, branchMatches } = require('../utils/uploadedSubjects');
 const Section = require('../models/Section');
 const Subject = require('../models/Subject');
 const { averageRecentAttendance, averageAttendanceBySection, averageOfSubjectPercentages } = require('../utils/facultyAttendance');
+const { campusForHod, assignedFacultyIdsForDepartment, getHodDepartmentAttendance } = require('../utils/hodDepartmentAttendance');
+const { passwordSchema } = require('../utils/password');
 r.use(authenticate, authorize('hod'), (req, res, next) => req.user.department ? next() : res.status(403).json({ success: false, message: 'No department assigned' }));
-async function campusForHod(user) {
-  return user.campus || inferDepartmentCampus(await Section.distinct('campus', {
-    department: user.department,
-    campus: { $in: ['BIRT', 'BIRTS', 'BIST'] }
-  }));
-}
-async function assignedFacultyIdsForDepartment(user, campus) {
-  const sections = await Section.find({
-    department: user.department,
-    ...(campus ? { campus } : {})
-  }).distinct('_id');
-  if (!sections.length) {
-    return U.find({
-      role: 'faculty',
-      department: user.department,
-      ...(campus ? { campus } : {})
-    }).distinct('_id');
-  }
-  const assignedIds = await FA.find({ section: { $in: sections } }).distinct('faculty');
-  if (assignedIds.length) return assignedIds;
-  return U.find({
-    role: 'faculty',
-    department: user.department,
-    ...(campus ? { campus } : {})
-  }).distinct('_id');
-}
 const fileAccessFilter = (user, campus, id) => ({
   ...(id ? { _id: oid(id) } : {}),
   ...(campus ? { campus } : { department: user.department })
@@ -116,39 +91,12 @@ r.get('/dashboard', ah(async (req, res) => {
     ...catalogSubjects.map(subject => subject.code)
   ])];
   const studentCampuses = ['BIRT', 'BIRTS'].includes(campus) ? ['BIRT', 'BIRTS'] : campus ? [campus] : [];
-  const [averageRosterStudents, averageHistories] = await Promise.all([
-    U.find({
-      role: 'student',
-      department: d,
-      active: true,
-      ...(studentCampuses.length ? { campus: { $in: studentCampuses } } : {}),
-      ...(studentCampuses.includes('BIRT') && studentCampuses.includes('BIRTS')
-        ? { attendanceSection: { $in: ['Birt', 'Birts'] } }
-        : {}),
-      semester: { $in: semesterIds }
-    }).select('_id branch semester rollNo attendanceSection').lean(),
-    assignedFacultyIds.length && subjectCodes.length
-      ? FacultySubjectHistory.find({ faculty: { $in: assignedFacultyIds }, code: { $in: subjectCodes } })
-        .select('code date createdAt students totalStudents')
-        .sort({ date: -1, createdAt: -1 })
-        .lean()
-      : []
-  ]);
-  const rosterIds = new Set(averageRosterStudents.map(student => String(student._id)));
-  const rosterRollNos = new Set(averageRosterStudents.map(student => String(student.rollNo || '').trim().toLowerCase()).filter(Boolean));
-  const departmentRecentHistories = averageHistories.slice(0, 3).map(history => ({
-    ...history,
-    students: (history.students || []).filter(student => {
-      const id = String(student.id || '');
-      const rollNo = String(student.rollNo || '').trim().toLowerCase();
-      return rosterIds.has(id) || (rollNo && rosterRollNos.has(rollNo));
-    })
-  }));
-  const departmentOverall = averageRecentAttendance(departmentRecentHistories, averageRosterStudents.length) || {
-    present: 0,
-    total: 0,
-    percentage: null
-  };
+  const { averageRosterStudents, averageHistories, overall: departmentOverall } = await getHodDepartmentAttendance(req.user, {
+    campus,
+    assignedFacultyIds,
+    sections,
+    subjectCodes
+  });
   const normalizedCode = code => String(code || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
   const historiesByCode = new Map();
   for (const history of averageHistories) {
@@ -386,15 +334,6 @@ r.delete('/faculty/:id', ah(async (req, res) => {
     throw fail(404, 'Faculty not found in your department classes and college.');
   }
 
-  const sessions = await S.find({ faculty: id }).distinct('_id');
-  const records = await AR.find({ faculty: id }).distinct('_id');
-  await Promise.all([
-    CR.deleteMany({ $or: [{ faculty: id }, { session: { $in: sessions } }, { record: { $in: records } }] }),
-    AR.deleteMany({ faculty: id }),
-    S.deleteMany({ faculty: id }),
-    FA.deleteMany({ faculty: id }),
-    FacultySubjectHistory.deleteMany({ faculty: id })
-  ]);
   await U.findByIdAndDelete(id);
   await audit(req, 'hod.faculty.delete', 'User', id, {
     name: faculty.name,
@@ -630,9 +569,9 @@ r.post('/students/import', validate(z.object({
     const rollNo = field(row, ['rollno', 'roll_no', 'roll_number']);
     const password = field(row, ['password', 'pass']);
     const branch = field(row, ['branch']);
-    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 10 || password.length > 128) {
+    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !passwordSchema.safeParse(password).success) {
       skipped++;
-      errors.push(`Row ${index + 2}: provide a name, valid email, and password with at least 10 characters.`);
+      errors.push(`Row ${index + 2}: provide a name, valid email, and a password of exactly 6 characters.`);
       continue;
     }
     if (await U.exists({ $or: [{ email }, ...(instId ? [{ instId }] : [])] })) {

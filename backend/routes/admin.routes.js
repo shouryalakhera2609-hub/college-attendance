@@ -4,9 +4,14 @@ const { authenticate } = require('../middleware/authenticate'), authorize = requ
 const excelRows = require('../utils/excel').excelRows;
 const { planClassSync } = require('../utils/classSync');
 const uniqueUploadedDepartments = require('../utils/registrationDepartments');
+const { passwordSchema } = require('../utils/password');
 const ClassUpload = M('ClassUpload');
 r.use(authenticate, authorize('admin'));
 const classUploadKey = campus => `admin-classes-${campus}`;
+async function getCampusDepartments(campus) {
+  const sections = await M('Section').find({ campus }).select('department').populate('department', 'name code').lean();
+  return uniqueUploadedDepartments(sections);
+}
 async function getCampusClassUpload(campus) {
   if (!campus) throw fail(400, 'Sign in with a selected college to manage classes.');
   let upload = await ClassUpload.findOne({ key: classUploadKey(campus) });
@@ -35,8 +40,37 @@ async function deleteSectionsOnly(sectionIds, session) {
   await ClassUpload.updateOne({ sections: { $in: sectionIds } }, { $pull: { sections: { $in: sectionIds } } }, { session });
 }
 r.get('/dashboard', ah(async (req, res) => {
-  const [students, faculty, departments, subjects, active, sum, recent] = await Promise.all([U.countDocuments({ role: 'student' }), U.countDocuments({ role: { $in: ['faculty', 'hod'] } }), M('Department').countDocuments(), M('Subject').countDocuments(), U.countDocuments({ active: true }), svc.summary({}), AL.find().sort('-createdAt').limit(8).populate('actor', 'name')]);
+  if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view the dashboard.');
+  const [students, faculty, departments, subjects, active, sum, recent] = await Promise.all([U.countDocuments({ role: 'student' }), U.countDocuments({ role: 'hod', campus: req.user.campus, active: true }), getCampusDepartments(req.user.campus).then(list => list.length), M('Subject').countDocuments(), U.countDocuments({ active: true }), svc.summary({}), AL.find().sort('-createdAt').limit(8).populate('actor', 'name')]);
   res.json({ success: true, data: { students, faculty, departments, subjects, active, threshold: sum.threshold, overall: sum.overall, subjectStats: sum.subjects, recent } });
+}));
+r.get('/active-hods', ah(async (req, res) => {
+  if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view active HODs.');
+  const hods = await U.find({ role: 'hod', campus: req.user.campus, active: true })
+    .select('name department campus')
+    .populate('department', 'name')
+    .sort({ name: 1 })
+    .lean();
+  const data = hods.map(hod => ({
+    id: String(hod._id),
+    name: hod.name,
+    department: hod.department?.name || ''
+  }));
+  res.json({ success: true, data });
+}));
+r.delete('/active-hods/:id', ah(async (req, res) => {
+  if (!req.user.campus) throw fail(400, 'Sign in with a selected college to manage HODs.');
+  const hod = await U.findOne({
+    _id: oid(req.params.id),
+    role: 'hod',
+    campus: req.user.campus,
+    active: true
+  });
+  if (!hod) throw fail(404, 'Active HOD not found in your college.');
+  const before = { role: hod.role, active: hod.active, campus: hod.campus, department: hod.department };
+  await U.deleteOne({ _id: hod._id });
+  audit(req, 'user.delete', 'User', hod._id, before, null);
+  res.json({ success: true });
 }));
 const wrap = p => p ? [].concat(p) : [];
 function crud(path, Model, sch, pop) {
@@ -107,11 +141,7 @@ r.get('/classes/upload', ah(async (req, res) => {
 }));
 r.get('/registration-departments', ah(async (req, res) => {
   if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view departments.');
-  const sections = await M('Section').find({ campus: req.user.campus })
-    .select('department')
-    .populate('department', 'name code')
-    .lean();
-  res.json({ success: true, data: uniqueUploadedDepartments(sections) });
+  res.json({ success: true, data: await getCampusDepartments(req.user.campus) });
 }));
 r.get('/classes/upload/original', ah(async (req, res) => {
   const upload = await ClassUpload.findOne({ key: classUploadKey(req.user.campus) }).select('fileName originalFile').lean();
@@ -291,13 +321,13 @@ r.post('/classes/excel-preview', require('express').raw({ type: 'application/oct
   res.json({ success: true, data: { rows: excelRows(req.body) } });
 }));
 // ---- users (explicit field whitelist; admin controls role assignment) ----
-const user = z.object({ name: t(), email: z.string().trim().toLowerCase().email(), instId: t(30).optional(), role: z.enum(['student', 'faculty', 'hod', 'admin']), campus: z.enum(['BIRT', 'BIRTS', 'BIST']).optional(), department: zid.optional(), rollNo: t(30).optional(), active: z.boolean().optional(), password: z.string().min(10).max(128) }).strict();
+const user = z.object({ name: t(), email: z.string().trim().toLowerCase().email(), instId: t(30).optional(), role: z.enum(['student', 'faculty', 'hod', 'admin']), campus: z.enum(['BIRT', 'BIRTS', 'BIST']).optional(), department: zid.optional(), rollNo: t(30).optional(), active: z.boolean().optional(), password: passwordSchema }).strict();
 const lastAdmin = async u => { if (u.role === 'admin' && u.active && !await U.exists({ role: 'admin', active: true, _id: { $ne: u._id } })) throw fail(400, 'Cannot remove or deactivate the last active admin'); };
 r.get('/users', ah(async (req, res) => res.json({ success: true, data: await U.find().sort('-createdAt').limit(1000).populate('department', 'name code') })));
 r.post('/students/import', validate(z.object({ students: z.array(z.object({
   name: t(), email: z.string().trim().toLowerCase().email(), instid: t(30).optional(),
   instId: t(30).optional(), rollno: t(30).optional(), rollNo: t(30).optional(),
-  department: t(120).optional(), password: z.string().min(10).max(128)
+  department: t(120).optional(), password: passwordSchema
 }).strict()).min(1).max(500) }).strict()), ah(async (req, res) => {
   const Department = M('Department');
   let imported = 0, skipped = 0;

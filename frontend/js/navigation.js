@@ -9,7 +9,7 @@ export const MENU = {
   hod: (u, path) => path.startsWith('/faculty/')
     ? [['Faculty Dashboard', 'dashboard', '/faculty/dashboard'], N.mark, N.subj, ['HOD', 'user', '/hod/dashboard'], ['Accounts', 'users', '/hod/accounts'], N.prof, N.set, ['Reset Data', 'history', '/faculty/reset']]
     : [['Dashboard', 'dashboard', '/hod/dashboard'], ['Faculty', 'users', '/faculty/dashboard'], ['Accounts', 'users', '/hod/accounts'], N.prof, N.set],
-  admin: u => [['Dashboard', 'dashboard', '/admin/dashboard'], ['Student Details', 'users', '/admin/students'], ['Manage Classes', 'grid', '/admin/classes'], N.prof, N.set]
+  admin: u => [['Dashboard', 'dashboard', '/admin/dashboard'], ['Manage Classes', 'grid', '/admin/classes'], ['Active HODs', 'users', '/admin/hods'], N.prof, N.set]
 };
 export function drawChrome(u, path, title) {
   const sb = document.getElementById('sidebar'), tb = document.getElementById('topbar'), sc = document.getElementById('scrim');

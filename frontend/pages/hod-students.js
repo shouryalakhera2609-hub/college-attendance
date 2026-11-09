@@ -16,7 +16,7 @@ export async function render(root) {
 }
 
 const openImport = draw => {
-  const m = modal({ title: 'Upload Student CSV', body: html`<div class="csv-upload-form"><p>Include a name, email, and password with at least 10 characters. Roll number and branch are optional.</p><input class="file-input" id="hod-students-csv" type="file" accept=".csv,text/csv"><button type="button" class="btn file-picker-button" id="choose-hod-students-csv">Choose CSV File</button><span id="hod-students-file-name" class="file-name">No file selected</span><pre id="hod-students-preview" class="csv-preview" hidden></pre><div class="login-error" id="hod-students-error" hidden></div><button class="btn primary" id="import-hod-students" disabled>Import Students</button></div>` });
+  const m = modal({ title: 'Upload Student CSV', body: html`<div class="csv-upload-form"><p>Include a name, email, and password with exactly 6 characters. Roll number and branch are optional.</p><input class="file-input" id="hod-students-csv" type="file" accept=".csv,text/csv"><button type="button" class="btn file-picker-button" id="choose-hod-students-csv">Choose CSV File</button><span id="hod-students-file-name" class="file-name">No file selected</span><pre id="hod-students-preview" class="csv-preview" hidden></pre><div class="login-error" id="hod-students-error" hidden></div><button class="btn primary" id="import-hod-students" disabled>Import Students</button></div>` });
   const input = m.el.querySelector('#hod-students-csv');
   const fileName = m.el.querySelector('#hod-students-file-name');
   const preview = m.el.querySelector('#hod-students-preview');
