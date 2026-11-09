@@ -193,7 +193,7 @@ export function render(root) {
       });
       forgotStatus.textContent = result.message;
       forgotStatus.hidden = false;
-      if (!result.accountExists) return;
+      if (!result.canReset) return;
       forgotCodeSent = true;
       forgotAccountStep.hidden = true;
       forgotResetStep.hidden = false;

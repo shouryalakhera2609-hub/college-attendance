@@ -278,19 +278,22 @@ r.post('/register/faculty/request-otp', registrationLimiter, validate(staffRegis
 r.post('/password/request-reset', passwordResetRequestLimiter, validate(passwordResetRequestSchema), ah(async (req, res) => {
   const identifier = req.body.identifier.toLowerCase();
   const user = await User.findOne({
-    active: true,
     $or: [{ email: identifier }, { instId: identifier }]
-  }).select('name email').lean();
+  }).select('name email active').lean();
   if (!user) return res.json({
     success: true,
-    data: { accountExists: false, message: 'Your account has not been created. Please create an account first.' }
+    data: { canReset: false, message: 'Your account has not been created. Please create an account first.' }
+  });
+  if (user.active === false) return res.json({
+    success: true,
+    data: { canReset: false, message: 'This account is inactive. Please contact your college administrator.' }
   });
   const email = user.email;
   const message = 'A password reset code has been sent to your registered email.';
 
   let challenge = await PasswordResetOtp.findOne({ email });
   if (challenge && Date.now() - challenge.lastSentAt.getTime() < RESEND_DELAY_MS) {
-    return res.json({ success: true, data: { accountExists: true, message } });
+    return res.json({ success: true, data: { canReset: true, message } });
   }
   const otp = createOtp();
   const now = new Date();
@@ -312,7 +315,7 @@ r.post('/password/request-reset', passwordResetRequestLimiter, validate(password
     console.error('Password reset OTP email delivery failed:', error.message);
     throw fail(503, 'Could not send the verification email. Please try again later.');
   }
-  res.json({ success: true, data: { accountExists: true, message } });
+  res.json({ success: true, data: { canReset: true, message } });
 }));
 
 r.post('/password/reset', verificationLimiter, validate(passwordResetSchema), ah(async (req, res) => {
