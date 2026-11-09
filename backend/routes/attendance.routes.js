@@ -1,12 +1,21 @@
 const r = require('express').Router(), { z } = require('zod'), FA = require('../models/FacultyAssignment'), En = require('../models/Enrollment'), S = require('../models/AttendanceSession'), AR = require('../models/AttendanceRecord');
 const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit, dateIsFuture, sortStudentsByRollNo } = require('../utils/helpers');
+const { getCollegeAttendanceHours, attendanceHoursStatus, assertAttendanceWithinCollegeHours } = require('../utils/collegeAttendanceHours');
 r.use(authenticate);
+r.get('/college-hours', authorize('faculty', 'hod'), ah(async (req, res) => {
+  const campus = String(req.query.campus || req.user.campus || '').toUpperCase();
+  const campuses = ['BIRT', 'BIRTS'].includes(req.user.campus) ? ['BIRT', 'BIRTS'] : [req.user.campus];
+  if (!campuses.includes(campus)) throw fail(403, 'You cannot view attendance timings for this college.');
+  const hours = await getCollegeAttendanceHours(campus);
+  res.json({ success: true, data: { ...hours, ...attendanceHoursStatus(hours) } });
+}));
 const create = z.object({ subject: zid, section: zid, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), timezoneOffsetMinutes: z.number().int().min(-840).max(840), period: z.number().int().min(1).max(12), term: z.string().trim().min(3).max(20) }).strict();
 r.post('/sessions', authorize('faculty', 'hod'), validate(create), ah(async (req, res) => {
-  const b = req.body, a = await FA.findOne({ faculty: req.user._id, subject: b.subject, section: b.section, term: b.term }).populate('subject', 'department semester');
+  const b = req.body, a = await FA.findOne({ faculty: req.user._id, subject: b.subject, section: b.section, term: b.term }).populate('subject', 'department semester').populate('section', 'campus');
   if (!a) throw fail(403, 'You are not assigned to this subject and section');
   const date = new Date(b.date + 'T00:00:00Z');
   if (isNaN(date) || dateIsFuture(b.date, b.timezoneOffsetMinutes)) throw fail(422, 'Attendance cannot be marked for a future date');
+  await assertAttendanceWithinCollegeHours(a.section?.campus || req.user.campus);
   const key = { subject: b.subject, section: b.section, date, period: b.period, term: b.term };
   let s = await S.findOne(key);
   if (s && (String(s.faculty) !== String(req.user._id) || s.status !== 'open')) throw fail(409, 'Attendance for this class and lecture is already recorded');
@@ -16,6 +25,9 @@ r.post('/sessions', authorize('faculty', 'hod'), validate(create), ah(async (req
 }));
 const rec = z.object({ records: z.array(z.object({ student: zid, status: z.enum(['present', 'absent', 'excused']) }).strict()).min(1).max(500) }).strict();
 r.post('/sessions/:id/records', authorize('faculty', 'hod'), validate(rec), ah(async (req, res) => {
+  const session = await S.findOne({ _id: oid(req.params.id), faculty: req.user._id, status: 'open' }).populate('section', 'campus');
+  if (!session) throw fail(409, 'Session not found, not yours, or already submitted');
+  await assertAttendanceWithinCollegeHours(session.section?.campus || req.user.campus);
   // Atomic claim: only an open session owned by this faculty can be submitted, exactly once.
   const s = await S.findOneAndUpdate({ _id: oid(req.params.id), faculty: req.user._id, status: 'open' }, { status: 'submitted', submittedAt: new Date() });
   if (!s) throw fail(409, 'Session not found, not yours, or already submitted');

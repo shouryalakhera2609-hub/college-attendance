@@ -379,11 +379,14 @@ export async function render(root) {
       body: html`<div class="form">
         <label>Select date<span class="date-picker-field"><input id="attendance-date" type="date" value="${selectedDate || today}" required><button id="open-date-picker" type="button" aria-label="Open date picker"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg></button></span></label>
         <label>Lecture no.<select id="attendance-lecture" required><option value="" ${selectedLecture >= 1 && selectedLecture <= 12 ? '' : 'selected'} disabled>Select lecture</option>${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(lecture => html`<option value="${lecture}" ${selectedLecture === lecture ? 'selected' : ''}>${lecture}</option>`)}</select></label>
+        <p id="college-hours-message" class="alert warn" role="status" hidden></p>
         <button class="btn primary" id="continue-attendance" type="button">Continue</button>
       </div>`
     });
     const dateInput = picker.el.querySelector('#attendance-date');
+    const hoursMessage = picker.el.querySelector('#college-hours-message');
     dateInput.max = today;
+    dateInput.onchange = () => { hoursMessage.hidden = true; };
     picker.el.querySelector('#open-date-picker').onclick = () => {
       try {
         if (typeof dateInput.showPicker === 'function') dateInput.showPicker();
@@ -396,7 +399,7 @@ export async function render(root) {
         dateInput.focus();
       }
     };
-    picker.el.querySelector('#continue-attendance').onclick = () => {
+    picker.el.querySelector('#continue-attendance').onclick = async event => {
       if (!dateInput.value) {
         dateInput.reportValidity();
         return;
@@ -410,10 +413,25 @@ export async function render(root) {
         picker.el.querySelector('#attendance-lecture').reportValidity();
         return;
       }
-      params.set('date', dateInput.value);
-      params.set('lectureNo', lectureNo);
-      location.hash = `#/faculty/subject?${params.toString()}`;
-      picker.close();
+      const continueButton = event.currentTarget;
+      continueButton.disabled = true;
+      try {
+        const campus = subject.campus || dashboard.campus;
+        const hours = await api(`/attendance/college-hours?campus=${encodeURIComponent(campus || '')}`);
+        if (!hours.isOpen) {
+          hoursMessage.textContent = hours.message;
+          hoursMessage.hidden = false;
+          continueButton.disabled = false;
+          return;
+        }
+        params.set('date', dateInput.value);
+        params.set('lectureNo', lectureNo);
+        location.hash = `#/faculty/subject?${params.toString()}`;
+        picker.close();
+      } catch (error) {
+        toast(error.message, 'error');
+        continueButton.disabled = false;
+      }
     };
   };
 }

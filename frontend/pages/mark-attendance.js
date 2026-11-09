@@ -14,6 +14,11 @@ export async function render(root) {
       return;
     }
     try {
+      const hours = await api(`/attendance/college-hours?campus=${encodeURIComponent(a.section.campus || '')}`);
+      if (!hours.isOpen) {
+        toast(hours.message, 'error');
+        return;
+      }
       const { session, students } = await api('/attendance/sessions', { method: 'POST', body: { subject: a.subject._id, section: a.section._id, term: a.term, date: fd.get('date'), timezoneOffsetMinutes: new Date().getTimezoneOffset(), period: Number(fd.get('period')) } });
       sheet(session, students, a, fd.get('date'));
     } catch (er) { toast(er.message, 'error'); }

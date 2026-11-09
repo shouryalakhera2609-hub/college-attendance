@@ -5,6 +5,7 @@ const excelRows = require('../utils/excel').excelRows;
 const { planClassSync } = require('../utils/classSync');
 const uniqueUploadedDepartments = require('../utils/registrationDepartments');
 const { passwordSchema } = require('../utils/password');
+const { settingKey: collegeHoursSettingKey, getCollegeAttendanceHours, timeToMinutes } = require('../utils/collegeAttendanceHours');
 const ClassUpload = M('ClassUpload');
 r.use(authenticate, authorize('admin'));
 const classUploadKey = campus => `admin-classes-${campus}`;
@@ -380,6 +381,27 @@ r.delete('/users/:id', ah(async (req, res) => { // soft delete = deactivate
 r.get('/settings/threshold', ah(async (req, res) => res.json({ success: true, data: { value: await svc.threshold() } })));
 r.put('/settings/threshold', validate(z.object({ value: z.number().int().min(1).max(100) }).strict()), ah(async (req, res) => {
   const old = await svc.threshold(); await Setting.updateOne({ key: 'threshold' }, { value: req.body.value }, { upsert: true }); audit(req, 'settings.threshold', 'Setting', 'threshold', old, req.body.value); res.json({ success: true, data: req.body });
+}));
+r.get('/settings/college-hours', ah(async (req, res) => {
+  if (!req.user.campus) throw fail(400, 'Sign in with a selected college to manage attendance timings.');
+  res.json({ success: true, data: { campus: req.user.campus, ...await getCollegeAttendanceHours(req.user.campus) } });
+}));
+const collegeHoursSchema = z.object({
+  openTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Enter a valid opening time.'),
+  closeTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Enter a valid closing time.')
+}).strict().superRefine((value, ctx) => {
+  if (timeToMinutes(value.openTime) >= timeToMinutes(value.closeTime)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['closeTime'], message: 'Closing time must be later than opening time.' });
+  }
+});
+r.put('/settings/college-hours', validate(collegeHoursSchema), ah(async (req, res) => {
+  const campus = req.user.campus;
+  if (!campus) throw fail(400, 'Sign in with a selected college to manage attendance timings.');
+  const key = collegeHoursSettingKey(campus);
+  const old = await Setting.findOne({ key }).select('value').lean();
+  await Setting.updateOne({ key }, { value: req.body }, { upsert: true });
+  audit(req, 'settings.college-attendance-hours', 'Setting', key, old?.value, req.body);
+  res.json({ success: true, data: { campus, configured: true, ...req.body } });
 }));
 r.get('/audit-logs', ah(async (req, res) => res.json({ success: true, data: await AL.find().sort('-createdAt').limit(200).populate('actor', 'name email') })));
 module.exports = r;

@@ -3,9 +3,10 @@ const { authenticate } = require('../middleware/authenticate'), authorize = requ
 const { uploadedSubjectsFromFiles } = require('../utils/uploadedSubjects');
 const { backfillHodFileCampuses } = require('../utils/hodFileCampus');
 const { averageAttendance, averageRecentAttendance, averageAttendanceBySection } = require('../utils/facultyAttendance');
+const { assertAttendanceWithinCollegeHours } = require('../utils/collegeAttendanceHours');
 const releaseInactiveFacultySubjects = require('../utils/releaseInactiveFacultySubjects');
 r.use(authenticate, authorize('faculty', 'hod'));
-const asg = req => FA.find({ faculty: req.user._id }).populate('subject', 'code name').populate('section', 'name');
+const asg = req => FA.find({ faculty: req.user._id }).populate('subject', 'code name').populate('section', 'name campus');
 const catalogIdFor = (campus, subjectId) => `${campus}:${subjectId}`;
 const parseCatalogId = catalogId => {
   const match = /^(BIRT|BIRTS|BIST):(subject|upload):(.+)$/i.exec(catalogId);
@@ -278,6 +279,7 @@ r.put('/subject-history/:id', validate(z.object({
 }).strict()), ah(async (req, res) => {
   const saved = await savedSubjectForFaculty(req.user._id, req.body.subject);
   if (!saved) throw fail(404, 'Subject not found in your saved subjects.');
+  await assertAttendanceWithinCollegeHours(saved.subject.campus || saved.faculty.campus);
   const history = await FacultySubjectHistory.findOne({
     _id: oid(req.params.id),
     faculty: req.user._id,
@@ -326,6 +328,7 @@ r.post('/subject-history', validate(z.object({
   }
   const saved = await savedSubjectForFaculty(req.user._id, req.body.subject);
   if (!saved) throw fail(404, 'Subject not found in your saved subjects.');
+  await assertAttendanceWithinCollegeHours(saved.subject.campus || saved.faculty.campus);
   const roster = await studentsForSavedSubject(saved.faculty, saved.subject);
   const rosterById = new Map(roster.map(student => [student.id, student]));
   const selectedIds = [...new Set(req.body.students)];
