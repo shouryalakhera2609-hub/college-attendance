@@ -17,6 +17,7 @@ const s = new m.Schema({
   instId: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
   passwordHash: { type: String, required: true, select: false },
   role: { type: String, enum: ['student', 'faculty', 'hod', 'admin'], required: true, index: true },
+  approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved', index: true },
   campus: { type: String, enum: ['BIRT', 'BIRTS', 'BIST'], uppercase: true, trim: true },
   attendanceSection: { type: String, enum: ['Birt', 'Birts'] },
   branch: { type: String, trim: true, maxlength: 40 },

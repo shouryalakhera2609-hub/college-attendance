@@ -44,6 +44,7 @@ export function render(root) {
         <small class="field-error" id="password-error" hidden></small>
         <div class="login-links-row"><span></span><button type="button" class="text-link" id="forgot-link">Forgot Password?</button></div>
         <div class="login-error" id="login-error" role="alert" hidden></div>
+        <p class="register-status" id="login-status" role="status" hidden></p>
         <button class="login-submit" id="login-submit" type="submit">Login</button>
       </form>
       <footer class="login-footer">
@@ -597,9 +598,14 @@ export function render(root) {
           method: 'POST',
           body: { email: staffRegistrationEmail.value.trim(), otp: staffOtp.value }
         });
-        state.user = user;
         hodRegisterDialog.close();
-        go(HOME[user.role]);
+        if (user.role === 'hod' || user.role === 'faculty') {
+          const approver = user.role === 'hod' ? 'admin' : 'HOD';
+          msgText(root.querySelector('#login-status'), `${user.role === 'hod' ? 'HOD' : 'Faculty'} account created. Your request is pending ${approver} approval. You can log in after it is approved.`);
+        } else {
+          state.user = user;
+          go(HOME[user.role]);
+        }
       }
     } catch (error) {
       registrationError.textContent = error.message;
@@ -678,6 +684,7 @@ export function render(root) {
   form.onsubmit = async event => {
     event.preventDefault();
     setError('#login-error', '');
+    msgText(root.querySelector('#login-status'), '');
     const errors = validateLogin(identifier.value, password.value);
     if (identifier.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier.value.trim())) errors.identifier = 'Enter a valid email address';
     setError('#identifier-error', errors.identifier || '');

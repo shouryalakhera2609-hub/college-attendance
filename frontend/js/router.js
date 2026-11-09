@@ -6,10 +6,11 @@ const A = ['admin'];
 const R = [['/login', 'login', null, 'Sign in'],
   ['/student/dashboard', 'student-dashboard', ['student'], 'Dashboard'], ['/student/subject', 'student-subject', ['student'], 'Subject Attendance'], ['/student/attendance', 'student-attendance', ['student'], 'My Attendance'], ['/student/history', 'attendance-history', ['student'], 'Attendance History'],
   ['/faculty/dashboard', 'faculty-dashboard', ['faculty', 'hod'], 'Dashboard'], ['/faculty/mark', 'mark-attendance', ['faculty', 'hod'], 'Mark Attendance'], ['/faculty/subjects', 'faculty-subjects', ['faculty', 'hod'], 'My Subjects'], ['/faculty/subject', 'faculty-subject', ['faculty', 'hod'], 'Subject'], ['/faculty/reset', 'faculty-reset', ['faculty', 'hod'], 'Reset Data'],
-  ['/hod/dashboard', 'hod-dashboard', ['hod'], 'Department Dashboard'], ['/hod/students', 'hod-students', ['hod'], 'Student Details'], ['/hod/accounts', 'hod-accounts', ['hod'], 'Accounts'], ['/admin/dashboard', 'admin-dashboard', A, 'System Overview'],
+  ['/hod/dashboard', 'hod-dashboard', ['hod'], 'Department Dashboard'], ['/hod/students', 'hod-students', ['hod'], 'Student Details'], ['/hod/accounts', 'hod-accounts', ['hod'], 'Accounts'], ['/hod/requests', 'hod-requests', ['hod'], 'Request'], ['/admin/dashboard', 'admin-dashboard', A, 'System Overview'],
   ['/admin/students', 'manage-students', A, 'Manage Students'], ['/admin/faculty', 'manage-faculty', A, 'Manage Faculty & Staff'], ['/admin/subjects', 'manage-subjects', A, 'Manage Subjects'], ['/admin/departments', 'manage-departments', A, 'Manage Departments'],
   ['/admin/classes', 'manage-classes', A, 'Manage Classes'],
   ['/admin/hods', 'admin-hods', A, 'Active HODs'],
+  ['/admin/requests', 'admin-requests', A, 'Request'],
   ['/admin/semesters', 'manage-semesters', A, 'Manage Semesters'], ['/admin/sections', 'manage-sections', A, 'Manage Sections'], ['/admin/assignments', 'manage-assignments', A, 'Faculty Assignments'], ['/admin/enrollments', 'manage-enrollments', A, 'Enrollments'],
   ['/corrections', 'correction-requests', ['student', 'faculty', 'hod'], 'Correction Requests'], ['/reports', 'reports', ['faculty', 'hod', 'admin'], 'Reports & Analytics'], ['/profile', 'profile', null, 'Profile'], ['/settings', 'settings', null, 'Settings']];
 export const go = p => { location.hash = '#' + p; };

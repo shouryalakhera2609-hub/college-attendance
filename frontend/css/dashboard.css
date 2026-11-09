@@ -24,6 +24,15 @@
 .admin-action-card h3{margin:.15rem 0;font-size:1.15rem}
 .admin-action-card p{margin:.25rem 0 0;color:#69778a}
 .admin-action-icon .stat{min-width:92px;padding:.75rem;text-align:center;background:#f6f9ff;border-color:#dfe8f7}
+.admin-request-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem}
+.admin-request-tabs .btn{width:100%}
+.admin-request-tabs .btn.pending-alert,.admin-request-tabs .btn.pending-alert:hover{background:var(--bad);border-color:var(--bad);color:#fff}
+.admin-request-list h3{margin:0}
+.admin-request-items{display:flex;flex-direction:column;margin-top:1rem}
+.admin-request-item{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 0;border-bottom:1px solid var(--line)}
+.admin-request-item p{margin:.25rem 0;color:var(--muted)}
+.admin-request-item small{color:var(--muted)}
+.admin-request-actions{display:flex;gap:.5rem}
 .student-toolbar{display:flex;gap:.65rem;justify-content:flex-end;flex-wrap:wrap;margin-bottom:.75rem}
 .hod-student-search{display:block;margin-bottom:1rem}.hod-student-search input{width:100%;margin-top:.35rem}
 .csv-upload-form{display:flex;flex-direction:column;gap:.8rem;padding-top:.8rem}

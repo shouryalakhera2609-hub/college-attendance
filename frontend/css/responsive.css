@@ -13,6 +13,11 @@
  .student-toolbar .btn{flex:1}
 }
 @media(max-width:560px){
+ .admin-request-item{align-items:flex-start;flex-direction:column}
+ .admin-request-actions{width:100%}
+ .admin-request-actions .btn{flex:1}
+}
+@media(max-width:560px){
  .login-page{min-height:calc(100vh - 2rem);padding:1rem .65rem;align-items:start}
  .login-card{margin:1rem 0;padding:1.35rem 1.1rem;border-radius:18px}
  .login-brand h1{font-size:1.75rem}

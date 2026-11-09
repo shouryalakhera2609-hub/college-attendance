@@ -42,12 +42,17 @@ async function deleteSectionsOnly(sectionIds, session) {
 }
 r.get('/dashboard', ah(async (req, res) => {
   if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view the dashboard.');
-  const [students, faculty, departments, subjects, active, sum, recent] = await Promise.all([U.countDocuments({ role: 'student' }), U.countDocuments({ role: 'hod', campus: req.user.campus, active: true }), getCampusDepartments(req.user.campus).then(list => list.length), M('Subject').countDocuments(), U.countDocuments({ active: true }), svc.summary({}), AL.find().sort('-createdAt').limit(8).populate('actor', 'name')]);
+  const [students, faculty, departments, subjects, active, sum, recent] = await Promise.all([U.countDocuments({ role: 'student' }), U.countDocuments({ role: 'hod', campus: req.user.campus, active: true, $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }), getCampusDepartments(req.user.campus).then(list => list.length), M('Subject').countDocuments(), U.countDocuments({ active: true, $or: [{ role: { $ne: 'hod' } }, { role: 'hod', approvalStatus: { $ne: 'pending' } }] }), svc.summary({}), AL.find().sort('-createdAt').limit(8).populate('actor', 'name')]);
   res.json({ success: true, data: { students, faculty, departments, subjects, active, threshold: sum.threshold, overall: sum.overall, subjectStats: sum.subjects, recent } });
 }));
 r.get('/active-hods', ah(async (req, res) => {
   if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view active HODs.');
-  const hods = await U.find({ role: 'hod', campus: req.user.campus, active: true })
+  const hods = await U.find({
+    role: 'hod',
+    campus: req.user.campus,
+    active: true,
+    $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }]
+  })
     .select('name department campus')
     .populate('department', 'name')
     .sort({ name: 1 })
@@ -59,13 +64,44 @@ r.get('/active-hods', ah(async (req, res) => {
   }));
   res.json({ success: true, data });
 }));
+const requestStatus = z.enum(['pending', 'approved', 'rejected']);
+r.get('/requests', ah(async (req, res) => {
+  if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view HOD requests.');
+  const parsed = requestStatus.safeParse(req.query.status);
+  if (!parsed.success) throw fail(400, 'Select a valid request status.');
+  const requests = await U.find({
+    role: 'hod',
+    campus: req.user.campus,
+    approvalStatus: parsed.data
+  })
+    .select('name email instId department campus approvalStatus createdAt')
+    .populate('department', 'name code')
+    .sort({ createdAt: 1 })
+    .lean();
+  res.json({ success: true, data: requests.map(request => ({ ...request, id: String(request._id), _id: undefined })) });
+}));
+r.patch('/requests/:id', validate(z.object({ decision: z.enum(['approved', 'rejected']) }).strict()), ah(async (req, res) => {
+  if (!req.user.campus) throw fail(400, 'Sign in with a selected college to review HOD requests.');
+  const request = await U.findOneAndUpdate(
+    { _id: oid(req.params.id), role: 'hod', campus: req.user.campus, approvalStatus: 'pending' },
+    {
+      $set: { approvalStatus: req.body.decision, active: req.body.decision === 'approved' },
+      $inc: { tokenVersion: 1 }
+    },
+    { new: true, runValidators: true }
+  );
+  if (!request) throw fail(404, 'Pending HOD request not found in your college.');
+  audit(req, `hod.request.${req.body.decision}`, 'User', request._id, { approvalStatus: 'pending' }, { approvalStatus: request.approvalStatus });
+  res.json({ success: true, data: { id: String(request._id), approvalStatus: request.approvalStatus } });
+}));
 r.delete('/active-hods/:id', ah(async (req, res) => {
   if (!req.user.campus) throw fail(400, 'Sign in with a selected college to manage HODs.');
   const hod = await U.findOne({
     _id: oid(req.params.id),
     role: 'hod',
     campus: req.user.campus,
-    active: true
+    active: true,
+    $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }]
   });
   if (!hod) throw fail(404, 'Active HOD not found in your college.');
   const before = { role: hod.role, active: hod.active, campus: hod.campus, department: hod.department };

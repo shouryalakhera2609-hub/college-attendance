@@ -16,6 +16,45 @@ const fileAccessFilter = (user, campus, id) => ({
   ...(id ? { _id: oid(id) } : {}),
   ...(campus ? { campus } : { department: user.department })
 });
+const facultyRequestStatus = z.enum(['pending', 'approved', 'rejected']);
+r.get('/requests', ah(async (req, res) => {
+  const campus = await campusForHod(req.user);
+  if (!campus) throw fail(400, 'Could not determine your college to view faculty requests.');
+  const parsed = facultyRequestStatus.safeParse(req.query.status);
+  if (!parsed.success) throw fail(400, 'Select a valid request status.');
+  const requests = await U.find({
+    role: 'faculty',
+    campus,
+    department: req.user.department,
+    approvalStatus: parsed.data
+  })
+    .select('name email instId department campus approvalStatus createdAt')
+    .populate('department', 'name code')
+    .sort({ createdAt: 1 })
+    .lean();
+  res.json({ success: true, data: requests.map(request => ({ ...request, id: String(request._id), _id: undefined })) });
+}));
+r.patch('/requests/:id', validate(z.object({ decision: z.enum(['approved', 'rejected']) }).strict()), ah(async (req, res) => {
+  const campus = await campusForHod(req.user);
+  if (!campus) throw fail(400, 'Could not determine your college to review faculty requests.');
+  const faculty = await U.findOneAndUpdate(
+    {
+      _id: oid(req.params.id),
+      role: 'faculty',
+      campus,
+      department: req.user.department,
+      approvalStatus: 'pending'
+    },
+    {
+      $set: { approvalStatus: req.body.decision, active: req.body.decision === 'approved' },
+      $inc: { tokenVersion: 1 }
+    },
+    { new: true, runValidators: true }
+  );
+  if (!faculty) throw fail(404, 'Pending faculty request not found in your department and college.');
+  audit(req, `faculty.request.${req.body.decision}`, 'User', faculty._id, { approvalStatus: 'pending' }, { approvalStatus: faculty.approvalStatus });
+  res.json({ success: true, data: { id: String(faculty._id), approvalStatus: faculty.approvalStatus } });
+}));
 r.get('/dashboard', ah(async (req, res) => {
   const d = req.user.department;
   const campus = await campusForHod(req.user);
@@ -27,7 +66,8 @@ r.get('/dashboard', ah(async (req, res) => {
       _id: { $in: assignedFacultyIds },
       role: 'faculty',
       department: d,
-      active: true
+      active: true,
+      $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }]
     }),
     CR.countDocuments({ department: d, status: 'pending' }),
     svc.summary({ department: d }),
@@ -214,7 +254,8 @@ r.get('/faculty', ah(async (req, res) => {
   const faculty = await U.find({
     role: 'faculty',
     _id: { $in: assignedFacultyIds },
-    department: req.user.department
+    department: req.user.department,
+    $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }]
   })
     .select('name phone active campus department savedSubjects savedSubjectCampuses savedUploadedSubjects')
     .populate('department', 'name')

@@ -211,7 +211,8 @@ r.post('/register/verify-otp', verificationLimiter, validate(otpSchema), ah(asyn
     section: challenge.section,
     term: challenge.term,
     passwordHash: challenge.passwordHash,
-    role: challenge.role || 'student'
+    role: challenge.role || 'student',
+    ...(['hod', 'faculty'].includes(challenge.role) ? { approvalStatus: 'pending' } : {})
   });
   if (challenge.section && challenge.term) {
     try {
@@ -222,8 +223,10 @@ r.post('/register/verify-otp', verificationLimiter, validate(otpSchema), ah(asyn
     }
   }
   await RegistrationOtp.deleteOne({ _id: challenge._id });
-  setSession(res, user);
-  req.user = user;
+  if (!['hod', 'faculty'].includes(user.role)) {
+    setSession(res, user);
+    req.user = user;
+  }
   audit(req, `${user.role}.register`, 'User', user._id, null, { email: user.email, role: user.role });
   res.status(201).json({ success: true, data: user.toSafe() });
 }));
@@ -372,6 +375,14 @@ r.post('/login', limiter, validate(schema), ah(async (req, res) => {
   if (!u || !ok) {
     if (u) { u.failedLogins += 1; if (u.failedLogins >= 5) { u.lockUntil = new Date(Date.now() + 15 * 60000); u.failedLogins = 0; } await u.save(); }
     throw fail(401, 'Invalid credentials');
+  }
+  if (['hod', 'faculty'].includes(u.role) && u.approvalStatus === 'pending') {
+    const approver = u.role === 'hod' ? 'admin' : 'HOD';
+    throw fail(403, `Your ${u.role} account has not been approved yet. Your request is pending ${approver} approval. You can log in after it is approved.`);
+  }
+  if (['hod', 'faculty'].includes(u.role) && u.approvalStatus === 'rejected') {
+    const approver = u.role === 'hod' ? 'college administrator' : 'HOD';
+    throw fail(403, `Your ${u.role} account request was rejected. Please contact your ${approver}.`);
   }
   if (!u.active) {
     if (u.deactivationNotice) throw fail(403, u.deactivationNotice);
