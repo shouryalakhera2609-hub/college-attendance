@@ -8,6 +8,7 @@
 .grid{display:grid;gap:1rem}.hero{grid-template-columns:260px 1fr}.two{grid-template-columns:1fr 1fr}
 .subjects{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem}.subj{display:flex;flex-direction:column;gap:.3rem;margin-bottom:.6rem}.subj>div:first-child{display:flex;justify-content:space-between}
 .class-attendance-toggle{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;margin:0 0 .75rem;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.class-attendance-toggle h3{margin:0}.class-attendance-toggle span{color:var(--accent);font-size:.875rem}.class-attendance-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.hod-class-attendance-title{display:flex;align-items:center;gap:.55rem}
 .student-attendance-list{display:flex;flex-direction:column;margin-top:1rem}.student-attendance-row{display:flex;flex-direction:row;align-items:center;gap:.75rem;padding:.7rem 0;border-bottom:1px solid var(--line);font-size:1rem}.student-attendance-row input{width:18px;height:18px;margin:0;flex:0 0 auto}
 .attendance-section-heading{padding:.75rem 0 .35rem;border-bottom:1px solid var(--line);font-size:1.05rem}.attendance-section-row th{background:#edf3ff;color:var(--text);font-size:.95rem;font-weight:700}
 .attendance-count{font-weight:700;white-space:nowrap;color:var(--good)}

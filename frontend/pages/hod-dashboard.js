@@ -192,17 +192,22 @@ export async function render(root) {
     };
     const classAttendanceList = root.querySelector('#class-attendance-list');
     const subjectAttendanceList = root.querySelector('#subject-attendance-list');
-    const renderClasses = () => renderAttendanceList({
-      items: d.classes,
-      search: root.querySelector('#class-attendance-search'),
-      sort: root.querySelector('#class-attendance-sort'),
-      target: classAttendanceList,
-      searchableText: section => `${section.name} ${section.branch} ${section.semester}`,
-      percentage: section => section.percentage,
-      render: classes => classes.length
-        ? classes.map(section => html`<div class="subj"><div><b>${section.name}</b><span class="${pctClass(section.percentage, d.threshold)}">${section.percentage == null ? 'No data' : `${section.percentage}%`}</span></div><small>Average attendance${[section.branch, section.semester].filter(Boolean).length ? ` · ${[section.branch, section.semester].filter(Boolean).join(' · ')}` : ''}</small>${bar(section.percentage, d.threshold)}</div>`)
-        : html`<div class="empty"><strong>No matching classes found</strong></div>`
-    });
+    const renderClasses = () => {
+      renderAttendanceList({
+        items: d.classes,
+        search: root.querySelector('#class-attendance-search'),
+        sort: root.querySelector('#class-attendance-sort'),
+        target: classAttendanceList,
+        searchableText: section => `${section.name} ${section.branch} ${section.semester}`,
+        percentage: section => section.percentage,
+        render: classes => classes.length
+          ? classes.map(section => html`<div class="subj hod-class-attendance-item"><div><div class="hod-class-attendance-title"><b>${section.name}</b><button class="btn sm" type="button" data-view-class="${section.id}" aria-label="View students in ${section.name}">View</button></div><span class="${pctClass(section.percentage, d.threshold)}">${section.percentage == null ? 'No data' : `${section.percentage}%`}</span></div><small>Average attendance${[section.branch, section.semester].filter(Boolean).length ? ` · ${[section.branch, section.semester].filter(Boolean).join(' · ')}` : ''}</small>${bar(section.percentage, d.threshold)}</div>`)
+          : html`<div class="empty"><strong>No matching classes found</strong></div>`
+      });
+      classAttendanceList.querySelectorAll('[data-view-class]').forEach(button => {
+        button.onclick = () => { location.hash = `#/hod/class?section=${encodeURIComponent(button.dataset.viewClass)}`; };
+      });
+    };
     const renderSubjects = () => renderAttendanceList({
       items: d.subjects,
       search: root.querySelector('#subject-attendance-search'),

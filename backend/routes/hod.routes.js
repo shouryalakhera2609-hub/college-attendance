@@ -1,5 +1,5 @@
 const r = require('express').Router(), bcrypt = require('bcrypt'), { z } = require('zod'), CR = require('../models/CorrectionRequest'), AR = require('../models/AttendanceRecord'), U = require('../models/User'), S = require('../models/AttendanceSession'), FacultySubjectHistory = require('../models/FacultySubjectHistory'), FA = require('../models/FacultyAssignment');
-const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit, pct } = require('../utils/helpers');
+const { authenticate } = require('../middleware/authenticate'), authorize = require('../middleware/authorize'), validate = require('../middleware/validate'), { ah, fail, zid, oid, audit, pct, sortStudentsByAttendanceSection, sortStudentsByRollNo } = require('../utils/helpers');
 const svc = require('../services/attendance.service'), rep = require('../services/report.service');
 const { spreadsheetRows, writeSpreadsheetRows } = require('../utils/excel');
 const spreadsheetDiff = require('../utils/spreadsheetDiff');
@@ -7,6 +7,7 @@ const HodFileUpload = require('../models/HodFileUpload');
 const { backfillHodFileCampuses } = require('../utils/hodFileCampus');
 const { uploadedSubjectsFromFiles, branchMatches } = require('../utils/uploadedSubjects');
 const Section = require('../models/Section');
+const Enrollment = require('../models/Enrollment');
 const Subject = require('../models/Subject');
 const { averageRecentAttendance, averageAttendanceBySection, averageOfSubjectPercentages } = require('../utils/facultyAttendance');
 const { campusForHod, assignedFacultyIdsForDepartment, getHodDepartmentAttendance } = require('../utils/hodDepartmentAttendance');
@@ -235,6 +236,182 @@ r.get('/dashboard', ah(async (req, res) => {
     };
   });
   res.json({ success: true, data: { students, faculty, pending, threshold: sum.threshold, overall: departmentOverall, subjects, classes, lowStudents: new Set(rows.rows.map(x => x.rollNo)).size } });
+}));
+r.get('/classes/:sectionId/students', ah(async (req, res) => {
+  const campus = await campusForHod(req.user);
+  if (!campus) throw fail(400, 'Could not determine your college to view this class roster.');
+  const section = await Section.findOne({
+    _id: oid(req.params.sectionId),
+    department: req.user.department,
+    campus
+  }).select('name semester branch campus').populate('semester', 'name number').lean();
+  if (!section) throw fail(404, 'Class not found in your department and college.');
+  const groupedByAttendanceSection = ['BIRT', 'BIRTS'].includes(section.campus);
+  const studentCampuses = groupedByAttendanceSection ? ['BIRT', 'BIRTS'] : [section.campus];
+  const enrollments = await Enrollment.find({ section: section._id })
+    .select('student')
+    .populate({
+      path: 'student',
+      match: {
+        role: 'student',
+        department: req.user.department,
+        active: true,
+        campus: { $in: studentCampuses },
+        ...(groupedByAttendanceSection ? { attendanceSection: { $in: ['Birt', 'Birts'] } } : {})
+      },
+      select: 'name rollNo attendanceSection'
+    })
+    .lean();
+  const seenStudents = new Set();
+  const roster = enrollments
+    .map(enrollment => enrollment.student)
+    .filter(student => {
+      if (!student || seenStudents.has(String(student._id))) return false;
+      seenStudents.add(String(student._id));
+      return true;
+    })
+    .map(student => ({
+      id: String(student._id),
+      name: student.name,
+      rollNo: student.rollNo || '',
+      ...(groupedByAttendanceSection ? { attendanceSection: student.attendanceSection } : {})
+    }));
+  await backfillHodFileCampuses();
+  const [subjectFiles, catalogSubjects] = await Promise.all([
+    HodFileUpload.find({ ...(campus ? { campus } : {}), kind: { $ne: 'student-list' } })
+      .select('fileName content department')
+      .populate('department', 'name')
+      .sort('-createdAt')
+      .limit(100)
+      .lean(),
+    Subject.find({ department: req.user.department, semester: section.semester?._id })
+      .select('code name')
+      .lean()
+  ]);
+  const classSubjects = uploadedSubjectsFromFiles({
+    files: subjectFiles,
+    branch: section.branch,
+    semester: section.semester?.number
+  });
+  const subjectsByCode = new Map();
+  const normalizedSubjectCode = code => String(code || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  for (const subject of [...classSubjects, ...catalogSubjects]) {
+    const key = normalizedSubjectCode(subject.code);
+    if (!key) continue;
+    const current = subjectsByCode.get(key);
+    if (!current) subjectsByCode.set(key, {
+      code: subject.code,
+      name: subject.name || '',
+      subjectIds: subject._id ? [subject._id] : []
+    });
+    else {
+      if (!current.name && subject.name) current.name = subject.name;
+      if (subject._id && !current.subjectIds.some(id => String(id) === String(subject._id))) current.subjectIds.push(subject._id);
+    }
+  }
+  const subjectList = [...subjectsByCode.entries()];
+  const subjectIds = [...new Set(subjectList.flatMap(([, subject]) => subject.subjectIds.map(id => String(id))))].map(oid);
+  const historyFacultyIds = await U.find({ role: 'faculty', campus: section.campus }).distinct('_id');
+  const [recordCounts, recordAttendanceCounts, facultyHistoryData, threshold] = await Promise.all([
+    subjectIds.length && roster.length
+      ? AR.aggregate([
+          { $match: { subject: { $in: subjectIds }, student: { $in: roster.map(student => oid(student.id)) } } },
+          { $group: { _id: { subject: '$subject', session: '$session' } } },
+          { $group: { _id: '$_id.subject', total: { $sum: 1 } } }
+        ])
+      : [],
+    subjectIds.length && roster.length
+      ? AR.aggregate([
+          { $match: { subject: { $in: subjectIds }, student: { $in: roster.map(student => oid(student.id)) }, status: { $in: ['present', 'absent'] } } },
+          { $group: { _id: { subject: '$subject', student: '$student', status: '$status' }, total: { $sum: 1 } } }
+        ])
+      : [],
+    historyFacultyIds.length && subjectList.length
+      ? FacultySubjectHistory.aggregate([
+          { $match: { faculty: { $in: historyFacultyIds }, code: { $in: subjectList.map(([, subject]) => subject.code) } } },
+          { $facet: {
+            totals: [{ $group: { _id: '$code', total: { $sum: 1 } } }],
+            attended: [
+              { $unwind: '$students' },
+              { $match: { 'students.id': { $in: roster.map(student => student.id) } } },
+              { $group: { _id: { code: '$code', student: '$students.id' }, total: { $sum: 1 } } }
+            ]
+          } }
+        ])
+      : [{ totals: [], attended: [] }],
+    svc.threshold()
+  ]);
+  const normalizedRecordCounts = new Map(recordCounts.map(item => [String(item._id), item.total]));
+  const normalizedHistoryCounts = new Map(facultyHistoryData[0].totals.map(item => [normalizedSubjectCode(item._id), item.total]));
+  const subjectCodeById = new Map(subjectList.flatMap(([key, subject]) => subject.subjectIds.map(id => [String(id), key])));
+  const attendedByStudentCode = new Map();
+  const historyAttendedByStudentCode = new Map();
+  const absentByStudentCode = new Map();
+  const addAttendedCount = (studentId, code, count) => {
+    const key = `${studentId}:${code}`;
+    attendedByStudentCode.set(key, (attendedByStudentCode.get(key) || 0) + count);
+  };
+  const addAbsentCount = (studentId, code, count) => {
+    const key = `${studentId}:${code}`;
+    absentByStudentCode.set(key, (absentByStudentCode.get(key) || 0) + count);
+  };
+  for (const item of recordAttendanceCounts) {
+    const code = subjectCodeById.get(String(item._id.subject));
+    if (code) {
+      if (item._id.status === 'present') addAttendedCount(String(item._id.student), code, item.total);
+      else if (item._id.status === 'absent') addAbsentCount(String(item._id.student), code, item.total);
+    }
+  }
+  for (const item of facultyHistoryData[0].attended) {
+    const code = normalizedSubjectCode(item._id.code);
+    const key = `${item._id.student}:${code}`;
+    historyAttendedByStudentCode.set(key, (historyAttendedByStudentCode.get(key) || 0) + item.total);
+    addAttendedCount(item._id.student, code, item.total);
+  }
+  for (const student of roster) {
+    const counts = Object.fromEntries(subjectList.map(([code]) => [
+      code,
+      attendedByStudentCode.get(`${student.id}:${code}`) || 0
+    ]));
+    const absentCounts = Object.fromEntries(subjectList.map(([code]) => [
+      code,
+      (absentByStudentCode.get(`${student.id}:${code}`) || 0)
+        + Math.max(0, (normalizedHistoryCounts.get(code) || 0) - (historyAttendedByStudentCode.get(`${student.id}:${code}`) || 0))
+    ]));
+    student.attendedBySubject = counts;
+    student.totalAttended = Object.values(counts).reduce((total, count) => total + count, 0);
+    student.averageAttendance = (() => {
+      const totalAbsent = Object.values(absentCounts).reduce((total, count) => total + count, 0);
+      const totalEligible = student.totalAttended + totalAbsent;
+      return totalEligible ? Math.round(student.totalAttended / totalEligible * 1000) / 10 : null;
+    })();
+  }
+  const totalByCode = new Map();
+  for (const [key, subject] of subjectList) {
+    const records = subject.subjectIds.reduce((total, id) => total + (normalizedRecordCounts.get(String(id)) || 0), 0);
+    const histories = normalizedHistoryCounts.get(key) || 0;
+    subject.totalClasses = records + histories;
+    totalByCode.set(key, subject.totalClasses);
+  }
+  res.json({
+    success: true,
+    data: {
+      students: groupedByAttendanceSection ? sortStudentsByAttendanceSection(roster) : sortStudentsByRollNo(roster),
+      groupedByAttendanceSection,
+      section: {
+        name: section.name,
+        branch: section.branch || '',
+        semester: section.semester?.name || ''
+      },
+      subjects: subjectList.map(([, subject]) => ({
+        code: subject.code,
+        name: subject.name,
+        totalClasses: subject.totalClasses
+      })).sort((left, right) => left.code.localeCompare(right.code)),
+      totalClasses: [...totalByCode.values()].reduce((total, count) => total + count, 0),
+      threshold
+    }
+  });
 }));
 r.get('/students', ah(async (req, res) => {
   const campus = await campusForHod(req.user);
