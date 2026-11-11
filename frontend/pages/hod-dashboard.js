@@ -21,7 +21,7 @@ export async function render(root) {
       <div class="page-head"><div><h3>Department Faculty</h3><p>Faculty in your department and college.</p></div></div>
       <div id="hod-faculty-results"><div class="empty"><strong>Loading faculty...</strong></div></div>
     </section>
-    <div class="card"><h3>CSV/Excel Files</h3><p>Files uploaded by any HOD at this college are visible here. All HODs can edit these files. Replacing a file updates the same saved file: new rows are added, rows missing from the new file are removed, and student accounts and attendance data stay unchanged.</p><button class="btn primary" id="hod-file-upload">${files.length ? 'Replace File' : 'Upload File'}</button>
+    <div class="card"><h3>CSV/Excel Files</h3><p>Upload subject list</p><button class="btn primary" id="hod-file-upload">${files.length ? 'Replace File' : 'Upload File'}</button>
       ${files.length ? files.map(file => html`<div class="card hod-file-row"><div><h4>${file.fileName}</h4><p>${file.department?.name || 'Department'} · ${file.kind === 'student-list' ? 'Student list · ' : file.kind === 'subject-list' ? 'Subject list · ' : ''}${fileSize(file.size)} · Updated ${new Date(file.updatedAt || file.createdAt).toLocaleString()}</p></div><div class="hod-file-actions"><button class="btn sm primary" data-open-file="${file._id}" type="button">Open</button><button class="btn sm" data-edit-file="${file._id}" type="button">Edit</button></div></div>`) : html`<div class="empty"><strong>No files uploaded yet</strong></div>`}
       <div id="hod-file-details"></div>
     </div>
@@ -31,7 +31,7 @@ export async function render(root) {
     </div></div>
     <div class="card"><button class="class-attendance-toggle" id="toggle-subject-attendance" type="button" aria-expanded="false" aria-controls="subject-attendance-details"><h3>Subject wise attendance</h3><span data-toggle-label>Click to view</span></button><div id="subject-attendance-details" hidden>
       <div class="filters"><label>Search subject<input id="subject-attendance-search" type="search" placeholder="Subject code, name or semester"></label><label>Sort by attendance<select id="subject-attendance-sort"><option value="asc">Low to high</option><option value="desc">High to low</option></select></label></div>
-      <div id="subject-attendance-list"></div><p><a href="#/corrections">Review correction requests</a></p>
+      <div id="subject-attendance-list"></div>
     </div></div></div>`);
     const studentList = root.querySelector('#hod-student-list');
     const studentResults = root.querySelector('#hod-student-results');
