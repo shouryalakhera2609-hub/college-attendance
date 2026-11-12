@@ -44,7 +44,7 @@ const N = { dashboard: ['Dashboard', 'dashboard'], att: ['My Attendance', 'check
 const adm = [['Students', 'users', '/admin/students'], ['Faculty & Staff', 'user', '/admin/faculty'], ['Subjects', 'book', '/admin/subjects'], ['Departments', 'grid', '/admin/departments'], ['Semesters', 'grid', '/admin/semesters'], ['Sections', 'grid', '/admin/sections'], ['Assignments', 'check', '/admin/assignments'], ['Enrollments', 'users', '/admin/enrollments']];
 export const MENU = {
   student: u => [['Dashboard', 'dashboard', '/student/dashboard'], N.att, N.prof, N.set],
-  faculty: u => [['Dashboard', 'dashboard', '/faculty/dashboard'], N.mark, N.subj, N.prof, N.set, ['Reset Data', 'history', '/faculty/reset']],
+  faculty: u => [['Dashboard', 'dashboard', '/faculty/dashboard'], N.mark, N.prof, N.set, ['Reset Data', 'history', '/faculty/reset']],
   hod: (u, path) => path.startsWith('/faculty/')
     ? [['Faculty Dashboard', 'dashboard', '/faculty/dashboard'], N.mark, N.subj, ['HOD', 'user', '/hod/dashboard'], ['Accounts', 'users', '/hod/accounts'], ['Request', 'file', '/hod/requests'], N.prof, N.set, ['Reset Data', 'history', '/faculty/reset']]
     : [['Dashboard', 'dashboard', '/hod/dashboard'], ['Faculty', 'users', '/faculty/dashboard'], ['Accounts', 'users', '/hod/accounts'], ['Request', 'file', '/hod/requests'], N.prof, N.set],

@@ -14,12 +14,18 @@ const R = [['/login', 'login', null, 'Sign in'],
   ['/admin/semesters', 'manage-semesters', A, 'Manage Semesters'], ['/admin/sections', 'manage-sections', A, 'Manage Sections'], ['/admin/assignments', 'manage-assignments', A, 'Faculty Assignments'], ['/admin/enrollments', 'manage-enrollments', A, 'Enrollments'],
   ['/corrections', 'correction-requests', ['student', 'faculty', 'hod'], 'Correction Requests'], ['/reports', 'reports', ['faculty', 'hod', 'admin'], 'Reports & Analytics'], ['/profile', 'profile', null, 'Profile'], ['/settings', 'settings', null, 'Settings']];
 export const go = p => { location.hash = '#' + p; };
+const viewport = document.querySelector('meta[name="viewport"]');
 export async function route() {
   const path = location.hash.slice(1).split('?')[0] || '/', u = state.user, root = document.getElementById('page-content');
   if (!u) { if (path !== '/login') return go('/login'); }
   else if (path === '/' || path === '/login') return go(HOME[u.role]);
   const hit = R.find(r => r[0] === path);
   if (u && hit && hit[2] && !hit[2].includes(u.role)) return go(HOME[u.role]); // UX guard only; backend enforces access
+  const loginScreen = hit?.[1] === 'login';
+  document.body.classList.toggle('login-screen', loginScreen);
+  if (viewport) viewport.content = loginScreen
+    ? 'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'
+    : 'width=device-width,initial-scale=1';
   if (u) drawChrome(u, path, hit ? hit[3] : 'Not found'); else hideChrome();
   loading(true);
   try { const mod = await import(`../pages/${hit ? hit[1] : 'not-found'}.js`); root.innerHTML = ''; await mod.render(root, { user: u }); root.focus({ preventScroll: true }); }
