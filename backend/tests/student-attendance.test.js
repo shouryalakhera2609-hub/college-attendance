@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mergeFacultySubjectHistory } = require('../utils/studentAttendance');
+const { mergeFacultySubjectHistory, overallAttendancePercentage } = require('../utils/studentAttendance');
 
 test('faculty subject history contributes present and absent classes to student summaries', () => {
   const summary = {
@@ -73,4 +73,21 @@ test('faculty history is included in recent attendance with the matching status'
   assert.equal(summary.recent.length, 1);
   assert.equal(summary.recent[0].status, 'present');
   assert.equal(summary.recent[0].subject.code, 'CD-501');
+});
+
+test('overall student attendance combines dashboard records and uploaded-subject history', () => {
+  const percentage = overallAttendancePercentage({
+    present: 2,
+    absent: 1,
+    histories: [
+      { code: 'CD-501', students: [{ id: 'student-1' }] },
+      { code: 'CD-501', students: [] },
+      { code: 'CD-501', students: [] }
+    ],
+    uploadedSubjects: [{ code: 'CD-501' }],
+    studentId: 'student-1'
+  });
+
+  assert.equal(percentage, 50);
+  assert.equal(overallAttendancePercentage({ studentId: 'student-1' }), null);
 });

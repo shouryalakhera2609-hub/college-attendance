@@ -7,6 +7,7 @@ const uniqueUploadedDepartments = require('../utils/registrationDepartments');
 const { passwordSchema } = require('../utils/password');
 const { settingKey: collegeHoursSettingKey, getCollegeAttendanceHours, timeToMinutes } = require('../utils/collegeAttendanceHours');
 const ClassUpload = M('ClassUpload');
+const { getAverageAttendanceByStudent } = require('../services/studentAttendance.service');
 r.use(authenticate, authorize('admin'));
 const classUploadKey = campus => `admin-classes-${campus}`;
 async function getCampusDepartments(campus) {
@@ -42,25 +43,52 @@ async function deleteSectionsOnly(sectionIds, session) {
 }
 r.get('/dashboard', ah(async (req, res) => {
   if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view the dashboard.');
-  const [students, faculty, departments, subjects, active, sum, recent] = await Promise.all([U.countDocuments({ role: 'student' }), U.countDocuments({ role: 'hod', campus: req.user.campus, active: true, $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }), getCampusDepartments(req.user.campus).then(list => list.length), M('Subject').countDocuments(), U.countDocuments({ active: true, $or: [{ role: { $ne: 'hod' } }, { role: 'hod', approvalStatus: { $ne: 'pending' } }] }), svc.summary({}), AL.find().sort('-createdAt').limit(8).populate('actor', 'name')]);
+  const [students, faculty, departments, subjects, active, sum, recent] = await Promise.all([U.countDocuments({ role: 'student', campus: req.user.campus }), U.countDocuments({ role: 'hod', campus: req.user.campus, active: true, $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }), getCampusDepartments(req.user.campus).then(list => list.length), M('Subject').countDocuments(), U.countDocuments({ active: true, $or: [{ role: { $ne: 'hod' } }, { role: 'hod', approvalStatus: { $ne: 'pending' } }] }), svc.summary({}), AL.find().sort('-createdAt').limit(8).populate('actor', 'name')]);
   res.json({ success: true, data: { students, faculty, departments, subjects, active, threshold: sum.threshold, overall: sum.overall, subjectStats: sum.subjects, recent } });
+}));
+r.get('/students', ah(async (req, res) => {
+  if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view students.');
+  const students = await U.find({ role: 'student', campus: req.user.campus })
+    .select('name email instId rollNo branch active department semester')
+    .populate('department', 'name')
+    .populate('semester', 'number')
+    .sort({ name: 1, rollNo: 1 })
+    .lean();
+  if (!students.length) return res.json({ success: true, data: [] });
+  const averages = await getAverageAttendanceByStudent(students, req.user.campus);
+  const data = students.map(student => ({
+    _id: String(student._id),
+    name: student.name,
+    email: student.email,
+    instId: student.instId || '',
+    rollNo: student.rollNo || '',
+    branch: student.branch || '',
+    active: student.active !== false,
+    department: student.department,
+    averageAttendance: averages.get(String(student._id))
+  }));
+  res.json({ success: true, data });
 }));
 r.get('/active-hods', ah(async (req, res) => {
   if (!req.user.campus) throw fail(400, 'Sign in with a selected college to view active HODs.');
   const hods = await U.find({
     role: 'hod',
     campus: req.user.campus,
-    active: true,
     $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }]
   })
-    .select('name department campus')
+    .select('name email instId phone department campus active')
     .populate('department', 'name')
     .sort({ name: 1 })
     .lean();
   const data = hods.map(hod => ({
     id: String(hod._id),
     name: hod.name,
-    department: hod.department?.name || ''
+    email: hod.email,
+    instId: hod.instId || '',
+    phone: hod.phone || '',
+    campus: hod.campus || '',
+    department: hod.department?.name || '',
+    active: hod.active !== false
   }));
   res.json({ success: true, data });
 }));
@@ -94,6 +122,30 @@ r.patch('/requests/:id', validate(z.object({ decision: z.enum(['approved', 'reje
   audit(req, `hod.request.${req.body.decision}`, 'User', request._id, { approvalStatus: 'pending' }, { approvalStatus: request.approvalStatus });
   res.json({ success: true, data: { id: String(request._id), approvalStatus: request.approvalStatus } });
 }));
+r.patch('/active-hods/:id/status', validate(z.object({ active: z.boolean() }).strict()), ah(async (req, res) => {
+  if (!req.user.campus) throw fail(400, 'Sign in with a selected college to manage HODs.');
+  const hod = await U.findOne({
+    _id: oid(req.params.id),
+    role: 'hod',
+    campus: req.user.campus,
+    $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }]
+  });
+  if (!hod) throw fail(404, 'HOD account not found in your college.');
+  const { active } = req.body;
+  if (hod.active === active) return res.json({ success: true, data: { id: hod.id, active: hod.active } });
+  const before = { active: hod.active, deactivationNotice: hod.deactivationNotice };
+  hod.active = active;
+  hod.tokenVersion += 1;
+  hod.deactivationNotice = active
+    ? undefined
+    : 'Your HOD account was deactivated by your college administrator. Please contact your college administrator to request activation.';
+  await hod.save();
+  audit(req, active ? 'hod.activate' : 'hod.deactivate', 'User', hod._id, before, {
+    active: hod.active,
+    deactivationNotice: hod.deactivationNotice
+  });
+  res.json({ success: true, data: { id: hod.id, active: hod.active } });
+}));
 r.delete('/active-hods/:id', ah(async (req, res) => {
   if (!req.user.campus) throw fail(400, 'Sign in with a selected college to manage HODs.');
   const hod = await U.findOne({
@@ -103,7 +155,7 @@ r.delete('/active-hods/:id', ah(async (req, res) => {
     active: true,
     $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }]
   });
-  if (!hod) throw fail(404, 'Active HOD not found in your college.');
+  if (!hod) throw fail(404, 'Active HOD account not found in your college.');
   const before = { role: hod.role, active: hod.active, campus: hod.campus, department: hod.department };
   await U.deleteOne({ _id: hod._id });
   audit(req, 'user.delete', 'User', hod._id, before, null);

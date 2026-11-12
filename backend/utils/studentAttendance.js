@@ -76,3 +76,13 @@ exports.mergeFacultySubjectHistory = (summary, histories, uploadedSubjects, stud
       .slice(0, 6);
   }
 };
+
+exports.overallAttendancePercentage = ({ present = 0, absent = 0, histories = [], uploadedSubjects = [], studentId }) => {
+  const summary = {
+    threshold: 0,
+    overall: { present, absent, total: present + absent, percentage: null },
+    subjects: []
+  };
+  exports.mergeFacultySubjectHistory(summary, histories, uploadedSubjects, studentId);
+  return summary.overall.percentage;
+};

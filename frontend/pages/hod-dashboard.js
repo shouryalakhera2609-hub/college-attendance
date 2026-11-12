@@ -13,7 +13,12 @@ export async function render(root) {
     const departmentPercentage = departmentOverall?.percentage ?? null;
     root.innerHTML = String(html`<div class="stats"><div class="stat ${pctClass(departmentPercentage, d.threshold)}" title="${departmentOverall?.total ? 'Present ÷ (Present + Absent) × 100; excused records are excluded.' : 'No attendance records available'}"><span>Department attendance</span><strong>${departmentPercentage == null ? '-' : departmentPercentage + '%'}</strong></div><button class="stat stat-link" id="hod-student-count" type="button" aria-expanded="false" aria-controls="hod-student-list"><span>Department students</span><strong>${d.students}</strong></button><button class="stat stat-link" id="hod-faculty-count" type="button" aria-expanded="false" aria-controls="hod-faculty-list"><span>Department faculty</span><strong>${d.faculty}</strong></button></div>
     <section class="card" id="hod-student-list" hidden aria-label="Department student list">
-      <div class="page-head"><div><h3>Department Students</h3><p>Search by student name, roll number, branch, or department.</p></div><a class="btn" href="#/hod/students">Import Student CSV</a></div>
+      <div class="page-head"><div><h3>Department Students</h3><p>Search by student name, roll number, branch, or department.</p></div><button class="btn" id="download-hod-students" type="button" disabled>Download Student List</button></div>
+      <div class="filters" aria-label="Filter by average attendance">
+        <label>Average attendance below (%)<input id="hod-attendance-threshold" type="number" min="10" max="80" step="1" placeholder="Choose 10-80"></label>
+        <button class="btn" id="hod-clear-attendance-filter" type="button" hidden>Show all</button>
+      </div>
+      <p class="muted">Students without attendance data are excluded from this filter.</p>
       <label class="hod-student-search">Search students<input id="hod-student-search" type="search" placeholder="Name, roll number, branch or department"></label>
       <div id="hod-student-results"><div class="empty"><strong>Loading students...</strong></div></div>
     </section>
@@ -36,23 +41,46 @@ export async function render(root) {
     const studentList = root.querySelector('#hod-student-list');
     const studentResults = root.querySelector('#hod-student-results');
     const studentSearch = root.querySelector('#hod-student-search');
+    const attendanceThreshold = root.querySelector('#hod-attendance-threshold');
+    const clearAttendanceFilter = root.querySelector('#hod-clear-attendance-filter');
+    const downloadStudentsButton = root.querySelector('#download-hod-students');
     let students = [];
+    let visibleStudents = [];
     let studentsLoaded = false;
+    let averageAttendanceThreshold = null;
     const renderStudents = () => {
+      if (attendanceThreshold.value && !attendanceThreshold.validity.valid) {
+        visibleStudents = [];
+        downloadStudentsButton.disabled = true;
+        studentResults.innerHTML = String(html`<p class="muted">Enter a whole number from 10 to 80.</p>`);
+        clearAttendanceFilter.hidden = true;
+        return;
+      }
       const query = studentSearch.value.trim().toLowerCase();
-      const filtered = students.filter(student =>
+      const attendanceMatches = students.filter(student =>
+        averageAttendanceThreshold === null
+          || (student.averageAttendance !== null && student.averageAttendance <= averageAttendanceThreshold)
+      );
+      const filtered = attendanceMatches.filter(student =>
         [student.name, student.rollNo, student.branch, student.department?.name]
           .some(value => String(value || '').toLowerCase().includes(query))
       );
-      studentResults.innerHTML = String(html`<p class="muted">Showing ${filtered.length} of ${students.length} students</p>${table([
+      visibleStudents = filtered;
+      downloadStudentsButton.disabled = !studentsLoaded || visibleStudents.length === 0;
+      const count = averageAttendanceThreshold === null
+        ? `Showing ${filtered.length} of ${students.length} students`
+        : `${attendanceMatches.length} students have average attendance at or below ${averageAttendanceThreshold}% · Showing ${filtered.length}`;
+      studentResults.innerHTML = String(html`<p class="muted">${count}</p>${table([
         { h: 'Roll no.', v: student => student.rollNo || '-' },
         { h: 'Name', v: student => student.name },
         { h: 'Email', v: student => student.email },
         { h: 'Branch', v: student => student.branch || '-' },
         { h: 'Department', v: student => student.department?.name || '-' },
+        { h: 'Average attendance', v: student => student.averageAttendance == null ? '-' : `${student.averageAttendance}%` },
         { h: 'Status', v: student => student.active ? 'Active' : 'Inactive' },
         { h: 'Action', v: student => html`<button class="btn sm ${student.active ? 'danger' : ''}" data-hod-student-status="${student._id}">${student.active ? 'Deactivate' : 'Activate'}</button>` }
       ], filtered, 'No students match your search.')}`);
+      clearAttendanceFilter.hidden = averageAttendanceThreshold === null;
       studentResults.querySelectorAll('[data-hod-student-status]').forEach(button => {
         button.onclick = async () => {
           const student = students.find(row => row._id === button.dataset.hodStudentStatus);
@@ -71,6 +99,38 @@ export async function render(root) {
           }
         };
       });
+    };
+    downloadStudentsButton.onclick = () => {
+      const csvCell = value => {
+        let text = String(value ?? '');
+        if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+        return `"${text.replace(/"/g, '""')}"`;
+      };
+      const rows = [
+        ['Roll no.', 'Name', 'Email', 'Branch', 'Department', 'Average attendance', 'Status'],
+        ...visibleStudents.map(student => [
+          student.rollNo || '',
+          student.name || '',
+          student.email || '',
+          student.branch || '',
+          student.department?.name || '',
+          student.averageAttendance == null ? '' : `${student.averageAttendance}%`,
+          student.active ? 'Active' : 'Inactive'
+        ])
+      ];
+      const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n');
+      download(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }), 'department-students.csv');
+    };
+    attendanceThreshold.oninput = () => {
+      averageAttendanceThreshold = attendanceThreshold.value
+        ? Number(attendanceThreshold.value)
+        : null;
+      renderStudents();
+    };
+    clearAttendanceFilter.onclick = () => {
+      averageAttendanceThreshold = null;
+      attendanceThreshold.value = '';
+      renderStudents();
     };
     studentSearch.oninput = renderStudents;
     root.querySelector('#hod-student-count').onclick = async event => {

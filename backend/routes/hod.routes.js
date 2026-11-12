@@ -10,6 +10,7 @@ const Section = require('../models/Section');
 const Enrollment = require('../models/Enrollment');
 const Subject = require('../models/Subject');
 const { averageRecentAttendance, averageAttendanceBySection, averageOfSubjectPercentages } = require('../utils/facultyAttendance');
+const { getAverageAttendanceByStudent } = require('../services/studentAttendance.service');
 const { campusForHod, assignedFacultyIdsForDepartment, getHodDepartmentAttendance } = require('../utils/hodDepartmentAttendance');
 const { passwordSchema } = require('../utils/password');
 r.use(authenticate, authorize('hod'), (req, res, next) => req.user.department ? next() : res.status(403).json({ success: false, message: 'No department assigned' }));
@@ -417,12 +418,20 @@ r.get('/students', ah(async (req, res) => {
   const campus = await campusForHod(req.user);
   if (!campus) return res.json({ success: true, data: [] });
   const students = await U.find({ role: 'student', department: req.user.department, campus })
-    .select('name email instId rollNo branch active createdAt')
+    .select('name email instId rollNo branch active createdAt semester')
     .populate('department', 'name')
+    .populate('semester', 'number')
     .sort('name')
     .limit(1000)
     .lean();
-  res.json({ success: true, data: students });
+  const averages = await getAverageAttendanceByStudent(students, campus);
+  res.json({
+    success: true,
+    data: students.map(student => ({
+      ...student,
+      averageAttendance: averages.get(String(student._id))
+    }))
+  });
 }));
 r.get('/faculty', ah(async (req, res) => {
   const campus = await campusForHod(req.user);
