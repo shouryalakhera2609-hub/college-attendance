@@ -87,28 +87,32 @@ body.login-screen .login-page{height:100%;min-height:0;overflow:hidden;padding:1
   body.login-screen .login-footer{margin-top:.7rem}
 }
 @media(max-width:600px){
-  body.login-screen .login-page{padding:.25rem}
-  body.login-screen .login-card{margin:0;padding:.65rem .85rem;border-radius:16px}
-  body.login-screen .login-logo-slot{width:100px;height:36px}
-  body.login-screen .login-check{width:30px;height:30px;margin:.25rem 0 0}
-  body.login-screen .login-brand h1{font-size:1.45rem}
-  body.login-screen .login-brand p{font-size:.75rem}
-  body.login-screen .role-picker{margin:.45rem 0}
-  body.login-screen .role-picker h2{margin-bottom:.35rem;font-size:.9rem}
-  body.login-screen .role-options{gap:.35rem}
-  body.login-screen .role-option{min-height:48px;gap:.2rem;padding:.3rem .2rem;font-size:.7rem}
-  body.login-screen .role-option svg{width:18px;height:18px}
-  body.login-screen .login-form{gap:.35rem}
-  body.login-screen .login-field{height:44px;gap:.5rem;padding:0 .65rem;border-radius:11px}
-  body.login-screen .login-links-row{margin:0 0 .1rem}
-  body.login-screen .login-submit{min-height:44px}
-  body.login-screen .login-footer{margin-top:.4rem}
-  body.login-screen .login-footer p{font-size:.78rem}
-  body.login-screen .admin-link{margin-top:.25rem}
+  body.login-screen .login-page{padding:.35rem .5rem;place-items:stretch}
+  body.login-screen .login-card{width:100%;height:100%;margin:0;padding:1.2rem .9rem;border-radius:18px;display:flex;flex-direction:column;justify-content:center}
+  body.login-screen .login-logo-slot{width:116px;height:62px}
+  body.login-screen .login-check{width:40px;height:40px;margin:.8rem 0 .45rem}
+  body.login-screen .login-brand h1{font-size:1.85rem}
+  body.login-screen .login-brand p{font-size:.88rem}
+  body.login-screen .role-picker{margin:1.2rem 0 1rem}
+  body.login-screen .role-picker h2{margin-bottom:.6rem;font-size:1rem}
+  body.login-screen .role-options{gap:.45rem}
+  body.login-screen .role-option{min-height:68px;gap:.3rem;padding:.45rem .2rem;font-size:.78rem}
+  body.login-screen .role-option svg{width:22px;height:22px}
+  body.login-screen .login-form{gap:.5rem}
+  body.login-screen .login-field{height:56px;gap:.6rem;padding:0 .75rem;border-radius:12px}
+  body.login-screen .login-links-row{margin:0 0 .2rem}
+  body.login-screen .login-submit{min-height:56px}
+  body.login-screen .login-footer{margin-top:.85rem}
+  body.login-screen .login-footer p{font-size:.84rem}
+  body.login-screen .admin-link{margin-top:.4rem}
 }
-@media(max-width:600px) and (max-height:460px){
+@media(max-width:900px) and (max-height:460px){
+  body.login-screen .login-page{padding:.2rem .35rem}
   body.login-screen .login-card{padding:.35rem .7rem}
   body.login-screen .login-logo-slot,body.login-screen .login-check{display:none}
-  body.login-screen .role-picker{margin:.3rem 0}
+  body.login-screen .role-picker{margin:.4rem 0}
   body.login-screen .role-option{min-height:44px}
+  body.login-screen .login-field{height:44px}
+  body.login-screen .login-submit{min-height:44px}
+  body.login-screen .login-footer{margin-top:.35rem}
 }
