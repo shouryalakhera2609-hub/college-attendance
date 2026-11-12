@@ -10,6 +10,7 @@ export async function render(root) {
       ${table([
         { h: 'HOD name', v: hod => html`<button class="btn ghost sm" type="button" data-hod-profile="${hod.id}" aria-haspopup="dialog" aria-label="View ${hod.name}'s profile">${hod.name}</button>` },
         { h: 'Department', v: hod => hod.department || '-' },
+        { h: 'Department attendance', v: hod => hod.departmentAttendance == null ? '-' : `${hod.departmentAttendance}%` },
         { h: 'Status', v: hod => hod.active ? 'Active' : 'Inactive' },
         { h: 'Action', v: hod => html`<button class="btn sm ${hod.active ? 'danger' : ''}" type="button" data-hod-status="${hod.id}">${hod.active ? 'Deactivate' : 'Activate'}</button>` }
       ], hods, 'No HOD accounts found for this college.')}`);

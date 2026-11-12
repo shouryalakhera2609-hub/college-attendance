@@ -8,6 +8,7 @@ const { passwordSchema } = require('../utils/password');
 const { settingKey: collegeHoursSettingKey, getCollegeAttendanceHours, timeToMinutes } = require('../utils/collegeAttendanceHours');
 const ClassUpload = M('ClassUpload');
 const { getAverageAttendanceByStudent } = require('../services/studentAttendance.service');
+const { getHodDepartmentAttendance } = require('../utils/hodDepartmentAttendance');
 r.use(authenticate, authorize('admin'));
 const classUploadKey = campus => `admin-classes-${campus}`;
 async function getCampusDepartments(campus) {
@@ -80,7 +81,16 @@ r.get('/active-hods', ah(async (req, res) => {
     .populate('department', 'name')
     .sort({ name: 1 })
     .lean();
-  const data = hods.map(hod => ({
+  const departmentAttendance = new Map();
+  for (const hod of hods) {
+    const departmentId = String(hod.department?._id || hod.department || '');
+    if (!departmentId) continue;
+    const key = `${hod.campus || ''}:${departmentId}`;
+    if (!departmentAttendance.has(key)) {
+      departmentAttendance.set(key, getHodDepartmentAttendance(hod).then(({ overall }) => overall.percentage));
+    }
+  }
+  const data = await Promise.all(hods.map(async hod => ({
     id: String(hod._id),
     name: hod.name,
     email: hod.email,
@@ -88,8 +98,9 @@ r.get('/active-hods', ah(async (req, res) => {
     phone: hod.phone || '',
     campus: hod.campus || '',
     department: hod.department?.name || '',
+    departmentAttendance: await departmentAttendance.get(`${hod.campus || ''}:${String(hod.department?._id || hod.department || '')}`) ?? null,
     active: hod.active !== false
-  }));
+  })));
   res.json({ success: true, data });
 }));
 const requestStatus = z.enum(['pending', 'approved', 'rejected']);
